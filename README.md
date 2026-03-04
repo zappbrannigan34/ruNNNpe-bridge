@@ -1,7 +1,7 @@
 # ruNNNpe bridge
 
 [![Android Build](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml/badge.svg)](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml)
-[![Latest Release](https://img.shields.io/github/v/release/zappbrannigan34/ruNNNpe-bridge)](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
+[![Release](https://img.shields.io/github/v/tag/zappbrannigan34/ruNNNpe-bridge?label=release)](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84)](https://developer.android.com/)
 [![Min SDK](https://img.shields.io/badge/minSDK-29-blue)](https://developer.android.com/about/versions/android-10)
 [![Health Connect](https://img.shields.io/badge/Health%20Connect-enabled-0A66C2)](https://developer.android.com/health-and-fitness/guides/health-connect)
@@ -15,7 +15,6 @@ Android bridge between NPE RUNN and Google Health Connect.
 - [Download](#download)
 - [Quick start](#quick-start)
 - [Project docs](#project-docs)
-- [CI and release](#ci-and-release)
 
 ## Features
 
@@ -27,13 +26,13 @@ Android bridge between NPE RUNN and Google Health Connect.
 
 ## Screenshots
 
-### Application
+### ruNNNpe bridge app screen
 
-![Application screen](docs/images/app-screen.jpg)
+![ruNNNpe bridge app screen](docs/images/runnbridge-app-screen.png)
 
-### Device / workout view
+### NPE RUNN device
 
-![Device workout screen](docs/images/device-screen.jpg)
+![NPE RUNN device](docs/images/npe-runn-device.webp)
 
 ## Download
 
@@ -60,9 +59,3 @@ After install:
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
 - CI/CD: `docs/CI_CD.md`
 - Release checklist: `RELEASE.md`
-
-## CI and release
-
-- Build workflow: `.github/workflows/android-build.yml`
-- Publish workflow: `.github/workflows/publish.yml`
-- Tag-based release: push tag `v*` or run publish workflow manually.

@@ -1,39 +1,39 @@
 # ruNNNpe bridge - Setup
 
-## Требования
+## Requirements
 
-- Android Studio (Hedgehog+)
+- Android Studio (Hedgehog or newer)
 - JDK 17
 - Android SDK 34
 - Android device with BLE (Android 10+)
-- Health Connect installed/available
+- Health Connect installed and available
 
-## Локальная сборка
+## Local build
 
 ```bat
 gradlew.bat assembleDebug
 ```
 
-APK после сборки:
+APK output:
 
 - `app/build/outputs/apk/debug/app-debug.apk`
 
-## Запуск на устройстве
+## Run on device
 
-1. Включить Bluetooth.
-2. Установить debug APK.
-3. Запустить приложение.
-4. Выдать все разрешения (BLE, notifications, Health Connect).
-5. Нажать `Find RUNN & Start`.
+1. Enable Bluetooth.
+2. Install the debug APK.
+3. Open the app.
+4. Grant all required permissions (BLE, notifications, Health Connect).
+5. Tap `Find RUNN & Start`.
 
-## Первая конфигурация
+## First-time configuration
 
-- `Save Profile Fallback` - ручные параметры профиля (если нет данных в HC).
-- HR датчик выбирается автоматически в фоне при старте тренировки.
-- После первичной настройки сервис продолжает работу в фоне.
+- `Save Profile Fallback` stores manual profile values if Health Connect profile data is missing.
+- HR sensor is discovered automatically in background when workout starts.
+- After setup, the foreground service keeps monitoring in background.
 
-## Xiaomi (рекомендуется)
+## Xiaomi recommended settings
 
-- Приложение -> Батарея -> Без ограничений.
-- Автозапуск -> Включить.
-- Разрешить уведомления и закрепить в recent apps.
+- App -> Battery -> No restrictions.
+- Autostart -> Enable for ruNNNpe bridge.
+- Keep notifications enabled and pin app in recent apps.
