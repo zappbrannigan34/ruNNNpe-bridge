@@ -1,47 +1,68 @@
-# RUNN Bridge
+# ruNNNpe-bridge
+
+[![Android Build](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml/badge.svg)](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/zappbrannigan34/ruNNNpe-bridge)](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
+[![Platform](https://img.shields.io/badge/platform-Android-3DDC84)](https://developer.android.com/)
+[![Min SDK](https://img.shields.io/badge/minSDK-29-blue)](https://developer.android.com/about/versions/android-10)
+[![Health Connect](https://img.shields.io/badge/Health%20Connect-enabled-0A66C2)](https://developer.android.com/health-and-fitness/guides/health-connect)
 
 Android bridge between NPE RUNN and Google Health Connect.
 
-## What it does
+## Table of contents
 
-- Reads treadmill telemetry from RUNN over BLE in a foreground service.
-- Detects workout start/finish automatically.
-- Calculates calories (net/gross) with profile-aware formulas.
-- Connects BLE heart-rate sensor automatically and writes HR samples.
-- Writes workout records to Health Connect (session, speed, distance, steps, calories, HR, elevation gain).
+- [Features](#features)
+- [Screenshots](#screenshots)
+- [Download](#download)
+- [Quick start](#quick-start)
+- [Project docs](#project-docs)
+- [CI and release](#ci-and-release)
 
-## Current app flow
+## Features
 
-- Button 1: `Save Profile Fallback`.
-- Button 2: `Find RUNN & Start`.
-- HR sensor selection is automatic in background (no manual HR button).
+- Background BLE monitoring with foreground service.
+- Automatic workout start and finish detection.
+- Automatic HR sensor discovery and reconnect.
+- Live metrics in app and notification.
+- Health Connect write: session, segment, speed, distance, steps, HR, calories, elevation.
+
+## Screenshots
+
+### Application
+
+![Application screen](docs/images/app-screen.jpg)
+
+### Device / workout view
+
+![Device workout screen](docs/images/device-screen.jpg)
+
+## Download
+
+- Latest APK: [Releases](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
+- Release asset naming: `ruNNNpe-bridge-<tag>.apk`
 
 ## Quick start
-
-1. Install Android Studio (JDK 17, SDK 34).
-2. Open this project and sync Gradle.
-3. Build debug APK:
 
 ```bat
 gradlew.bat assembleDebug
 ```
 
-4. Run on phone, grant BLE/notifications/Health Connect permissions.
-5. Press `Find RUNN & Start` once for setup.
+After install:
 
-## Documentation
+1. Grant BLE, notifications, and Health Connect permissions.
+2. Tap `Find RUNN & Start`.
+3. Keep app unrestricted in battery settings for stable background work.
+
+## Project docs
 
 - Setup: `docs/SETUP.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - Dependencies: `docs/DEPENDENCIES.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`
-- CI/CD and release: `docs/CI_CD.md`
+- CI/CD: `docs/CI_CD.md`
+- Release checklist: `RELEASE.md`
 
-## GitHub Actions
+## CI and release
 
-- `android-build.yml`:
-  - Trigger: push, pull_request, manual run.
-  - Builds debug APK and uploads artifact.
-- `publish.yml`:
-  - Trigger: tag push (`v*`) or manual run.
-  - Builds debug APK and publishes GitHub Release with APK attachment.
+- Build workflow: `.github/workflows/android-build.yml`
+- Publish workflow: `.github/workflows/publish.yml`
+- Tag-based release: push tag `v*` or run publish workflow manually.
