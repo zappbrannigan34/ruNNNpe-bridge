@@ -59,7 +59,7 @@ Official references:
   - builds release APK + AAB and publishes both assets
 - `.github/workflows/android-build.yml`
   - validates debug and release outputs on CI
-- `fdroid.yml`
+- `.fdroid.yml`
   - upstream F-Droid metadata baseline for submission
 - `PRIVACY_POLICY.md`
   - required for Play listing and User Data compliance
