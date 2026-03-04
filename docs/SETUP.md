@@ -4,7 +4,7 @@
 
 - Android Studio (Hedgehog or newer)
 - JDK 17
-- Android SDK 34
+- Android SDK 35
 - Android device with BLE (Android 10+)
 - Health Connect installed and available
 
@@ -14,9 +14,27 @@
 gradlew.bat assembleDebug
 ```
 
+```bash
+./gradlew assembleDebug
+```
+
+## Release build
+
+```bash
+./gradlew assembleRelease bundleRelease
+```
+
 APK output:
 
 - `app/build/outputs/apk/debug/app-debug.apk`
+- `app/build/outputs/apk/release/app-release.apk`
+- `app/build/outputs/bundle/release/app-release.aab`
+
+If `gradlew` is not executable on Linux/macOS:
+
+```bash
+chmod +x gradlew
+```
 
 ## Run on device
 

@@ -4,6 +4,7 @@
 [![Release](https://img.shields.io/github/v/tag/zappbrannigan34/ruNNNpe-bridge?label=release)](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
 [![Platform](https://img.shields.io/badge/platform-Android-3DDC84)](https://developer.android.com/)
 [![Min SDK](https://img.shields.io/badge/minSDK-29-blue)](https://developer.android.com/about/versions/android-10)
+[![Target SDK](https://img.shields.io/badge/targetSDK-35-blue)](https://developer.android.com/google/play/requirements/target-sdk)
 [![Health Connect](https://img.shields.io/badge/Health%20Connect-enabled-0A66C2)](https://developer.android.com/health-and-fitness/guides/health-connect)
 
 Android bridge between NPE RUNN and Google Health Connect.
@@ -36,13 +37,19 @@ Android bridge between NPE RUNN and Google Health Connect.
 
 ## Download
 
-- Latest APK: [Releases](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
-- Release asset naming: `ruNNNpe bridge-<tag>.apk`
+- Latest release assets: [Releases](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
+- Expected release assets: `ruNNNpe bridge-<tag>.apk` and `ruNNNpe bridge-<tag>.aab`
 
 ## Quick start
 
 ```bat
 gradlew.bat assembleDebug
+```
+
+## Release build
+
+```bash
+./gradlew assembleRelease bundleRelease
 ```
 
 After install:
@@ -51,9 +58,16 @@ After install:
 2. Tap `Find RUNN & Start`.
 3. Keep app unrestricted in battery settings for stable background work.
 
+## Publication policy docs
+
+- Privacy Policy: `PRIVACY_POLICY.md`
+- Public URL for Play Console: `https://github.com/zappbrannigan34/ruNNNpe-bridge/blob/master/PRIVACY_POLICY.md`
+- License: `LICENSE`
+
 ## Project docs
 
 - Setup: `docs/SETUP.md`
+- Publishing: `docs/PUBLISHING.md`
 - Architecture: `docs/ARCHITECTURE.md`
 - Dependencies: `docs/DEPENDENCIES.md`
 - Troubleshooting: `docs/TROUBLESHOOTING.md`

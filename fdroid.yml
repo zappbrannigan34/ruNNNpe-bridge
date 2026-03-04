@@ -1,0 +1,29 @@
+Categories:
+  - Sports & Health
+License: Apache-2.0
+AuthorName: zappbrannigan34
+AuthorEmail: 00000000+zappbrannigan34@users.noreply.github.com
+SourceCode: https://github.com/zappbrannigan34/ruNNNpe-bridge
+IssueTracker: https://github.com/zappbrannigan34/ruNNNpe-bridge/issues
+Changelog: https://github.com/zappbrannigan34/ruNNNpe-bridge/releases
+AutoName: ruNNNpe bridge
+Summary: Bridge NPE RUNN telemetry to Health Connect
+Description: |-
+  ruNNNpe bridge connects to NPE RUNN and BLE heart-rate sensors,
+  keeps a foreground workout session running in background,
+  and writes workout data to Health Connect.
+
+RepoType: git
+Repo: https://github.com/zappbrannigan34/ruNNNpe-bridge.git
+
+Builds:
+  - versionName: 0.1.1
+    versionCode: 2
+    commit: v0.1.1
+    gradle:
+      - yes
+
+AutoUpdateMode: Version
+UpdateCheckMode: Tags
+CurrentVersion: 0.1.1
+CurrentVersionCode: 2
