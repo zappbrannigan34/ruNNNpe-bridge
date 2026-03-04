@@ -1,0 +1,13 @@
+ruNNNpe bridge connects to NPE RUNN and BLE heart-rate sensors,
+runs workout tracking in a foreground service,
+and writes workout sessions to Health Connect.
+
+Main features:
+- BLE treadmill and heart-rate sensor integration
+- background-safe workout tracking with persistent notification
+- Health Connect writes for exercise session, speed, distance, heart rate, calories, and elevation
+- live workout telemetry shown in app and notification
+
+Important:
+- Health Connect must be installed for full workout sync behavior
+- Bluetooth and Health Connect permissions are required

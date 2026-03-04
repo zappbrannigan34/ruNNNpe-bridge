@@ -25,8 +25,8 @@ android {
         applicationId = "com.zappbrannigan34.runnnpebridge"
         minSdk = 29
         targetSdk = 35
-        versionCode = envVersionCode ?: 2
-        versionName = envVersionName ?: "0.1.1"
+        versionCode = envVersionCode ?: 6
+        versionName = envVersionName ?: "0.1.4"
     }
 
     signingConfigs {

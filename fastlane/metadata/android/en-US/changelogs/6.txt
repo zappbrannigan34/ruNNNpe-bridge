@@ -1,0 +1,6 @@
+Prepare official F-Droid submission metadata and release alignment.
+
+- add Linux Gradle wrapper for build-from-source workflows
+- add privacy policy and license files
+- add F-Droid metadata (`fdroid.yml`) with anti-feature declaration
+- align source versioning for deterministic F-Droid build

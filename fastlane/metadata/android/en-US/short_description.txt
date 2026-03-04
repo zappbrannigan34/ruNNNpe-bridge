@@ -1,0 +1,1 @@
+Bridge NPE RUNN treadmill telemetry to Health Connect.
