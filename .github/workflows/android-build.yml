@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-debug:
+  build:
     runs-on: windows-latest
 
     steps:
@@ -23,18 +23,23 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Build debug APK
-        run: .\gradlew.bat assembleDebug
+      - name: Build debug + release artifacts
+        env:
+          ANDROID_VERSION_CODE: ${{ github.run_number }}
+          ANDROID_VERSION_NAME: ci-${{ github.run_number }}
+        run: .\gradlew.bat assembleDebug assembleRelease bundleRelease
 
-      - name: Normalize APK filename
+      - name: Normalize artifact filenames
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           Copy-Item "app/build/outputs/apk/debug/app-debug.apk" "dist/ruNNNpe bridge-debug.apk" -Force
+          Copy-Item "app/build/outputs/apk/release/app-release.apk" "dist/ruNNNpe bridge-release.apk" -Force
+          Copy-Item "app/build/outputs/bundle/release/app-release.aab" "dist/ruNNNpe bridge-release.aab" -Force
 
-      - name: Upload debug APK artifact
+      - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ruNNNpe bridge debug apk
-          path: dist/*.apk
+          name: ruNNNpe bridge build artifacts
+          path: dist/*
           if-no-files-found: error

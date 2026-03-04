@@ -14,9 +14,9 @@ Actions:
 
 1. Checkout code.
 2. Setup JDK 17.
-3. Build debug APK (`assembleDebug`).
-4. Rename APK to `ruNNNpe bridge-debug.apk`.
-5. Upload APK artifact.
+3. Build debug and release outputs (`assembleDebug`, `assembleRelease`, `bundleRelease`).
+4. Normalize artifact names (`.apk` and `.aab`).
+5. Upload build artifacts.
 
 ## Publish workflow
 
@@ -29,14 +29,25 @@ Triggers:
 
 Actions:
 
-1. Build debug APK.
-2. Rename APK to `ruNNNpe bridge-<tag>.apk`.
-3. Create/update GitHub Release.
-4. Attach APK to release assets.
+1. Resolve release tag and semantic version name.
+2. Decode upload keystore from repository secrets (if configured).
+3. Build release APK and AAB (`assembleRelease`, `bundleRelease`).
+4. Rename outputs to `ruNNNpe bridge-<tag>.*`.
+5. Create/update GitHub Release.
+6. Attach APK and AAB to release assets.
+
+## Required publish secrets
+
+- `ANDROID_UPLOAD_KEYSTORE_BASE64`
+- `ANDROID_UPLOAD_KEYSTORE_PASSWORD`
+- `ANDROID_UPLOAD_KEY_ALIAS`
+- `ANDROID_UPLOAD_KEY_PASSWORD`
+
+If these secrets are absent, `assembleRelease` still completes with fallback debug signing for validation only. Do not upload fallback-signed artifacts to Play production.
 
 ## How to publish manually
 
-1. Open Actions -> `Publish APK`.
+1. Open Actions -> `Publish Release`.
 2. Run workflow.
 3. Set `tag_name` like `v0.1.0`.
-4. Check Release page for uploaded APK.
+4. Check Release page for uploaded APK and AAB.
