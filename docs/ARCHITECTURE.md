@@ -1,65 +1,49 @@
-# RUNN Bridge - Архитектура
+# RUNN Bridge - Architecture
 
-## Обзор
-Автоматический мост между NPE RUNN и Google Health Connect.
+## Purpose
 
-## Компоненты
+RUNN Bridge receives treadmill telemetry from NPE RUNN and writes structured workout data to Health Connect.
 
-### FtmsParser.kt
-Парсит FTMS Treadmill Data (0x2ACD) и RSC (0x2A53) BLE характеристики.
-- TreadmillSnapshot: скорость, средняя скорость, дистанция, наклон, время, пульс
-- RscSnapshot: скорость, каденс, дистанция
+## Main components
 
-### WorkoutStateMachine.kt
-State machine: IDLE → RUNNING → COOLDOWN
-- Автоопределение начала тренировки (speed ≥ 0.3 m/s)
-- Автоопределение конца (2 мин покоя)
-- Минимальная длительность: 1 мин
-- Накопление данных: скорости, дистанция, шаги, наклон
+- `MainActivity.kt`
+  - One-time setup UI.
+  - Permissions flow (BLE + notifications + Health Connect).
+  - Profile fallback save and live telemetry view.
+- `BleForegroundService.kt`
+  - BLE scanning, connection, and reconnection logic.
+  - RUNN stream ingestion (FTMS/RSC).
+  - Automatic HR sensor discovery/reconnect in background.
+  - Foreground notifications + telemetry broadcasts.
+- `FtmsParser.kt`
+  - Decodes FTMS/RSC payloads into typed snapshots.
+- `WorkoutStateMachine.kt`
+  - Detects workout start/end.
+  - Keeps speed/incline/HR time-series and summary fields.
+- `CalorieEngine.kt`
+  - Segment-based calorie estimation (net/gross) with profile inputs.
+- `HealthConnectWriter.kt`
+  - Writes workout to Health Connect records.
+  - Writes profile fallback values supported by HC.
+- `BootReceiver.kt` + `BleScanReceiver.kt` + `SafeServiceStarter.kt` + `RunnCompanionService.kt`
+  - Background resilience and restart paths.
 
-### HealthConnectWriter.kt
-Запись в Health Connect:
-- ExerciseSessionRecord (бег на дорожке)
-- SpeedRecord (образцы скорости)
-- DistanceRecord (дистанция)
-- StepsRecord (шаги)
+## Data flow
 
-### BleForegroundService.kt
-Foreground service для BLE:
-- Периодический скан (5 сек каждые 30 сек)
-- GATT подключение к RUNN
-- Подписка на FTMS/RSC уведомления
-- WakeLock для фоновой работы
-- START_STICKY - перезапуск после kill
+1. RUNN sends BLE packets.
+2. Service parses packets and updates state machine.
+3. State machine emits live telemetry.
+4. On workout finish, writer inserts Health Connect records.
+5. Connected apps (including Fit) consume synced HC data.
 
-### BootReceiver.kt
-Автозапуск после:
-- BOOT_COMPLETED
-- MY_PACKAGE_REPLACED
+## Health Connect records written
 
-### MainActivity.kt
-UI для настройки:
-- Проверка Health Connect
-- Запрос BLE разрешений
-- Запрос Health Connect разрешений
-- Скан и подключение к RUNN
-- Сохранение MAC адреса
-
-## Поток данных
-1. NPE RUNN транслирует BLE notifications (FTMS 0x2ACD или RSC 0x2A53)
-2. BleForegroundService получает raw bytes через GATT callback
-3. FtmsParser декодирует: скорость, дистанция, наклон, пульс, каденс
-4. WorkoutStateMachine определяет начало/конец тренировки
-5. HealthConnectWriter записывает ExerciseSession + метрики
-6. Данные доступны в Google Fit, Strava и других приложениях
-
-## State Machine
-- IDLE — ожидание движения
-- RUNNING — накопление данных
-- COOLDOWN — 2 мин таймаут до завершения
-
-## Статистика проекта
-- 6 Kotlin файлов
-- ~800 строк кода
-- Min SDK: API 29+
-- Зависимости: только системные AndroidX
+- `ExerciseSessionRecord`
+- `ExerciseSegment` (walking/running treadmill)
+- `SpeedRecord`
+- `DistanceRecord`
+- `StepsRecord`
+- `ElevationGainedRecord`
+- `ActiveCaloriesBurnedRecord`
+- `TotalCaloriesBurnedRecord`
+- `HeartRateRecord`

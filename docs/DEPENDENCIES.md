@@ -1,25 +1,25 @@
-# Зависимости проекта RunnBridge
+# Dependencies
 
-## Dependencies (app/build.gradle.kts)
+## Runtime dependencies (`app/build.gradle.kts`)
 
-| Библиотека | Версия | Описание |
-|------------|--------|----------|
-| androidx.core:core-ktx | 1.13.1 | Kotlin extensions for Android |
-| androidx.appcompat:appcompat | 1.7.0 | Backward-compatible UI |
-| com.google.android.material:material | 1.12.0 | Material Design 3 |
-| androidx.health.connect:connect-client | 1.1.0-alpha07 | Health Connect API |
-| kotlinx-coroutines-android | 1.8.1 | Coroutines for async operations |
+| Artifact | Version | Purpose |
+|---|---|---|
+| `androidx.core:core-ktx` | `1.13.1` | Kotlin Android extensions |
+| `androidx.appcompat:appcompat` | `1.7.0` | AppCompat support |
+| `com.google.android.material:material` | `1.12.0` | Material components |
+| `androidx.health.connect:connect-client` | `1.1.0-alpha07` | Health Connect client API |
+| `org.jetbrains.kotlinx:kotlinx-coroutines-android` | `1.8.1` | Coroutines on Android |
 
-## Gradle Plugins
+## Build plugins
 
-| Плагин | Версия |
-|--------|--------|
-| com.android.application | 8.2.2 |
-| org.jetbrains.kotlin.android | 1.9.22 |
+| Plugin | Version |
+|---|---|
+| `com.android.application` | `8.2.2` |
+| `org.jetbrains.kotlin.android` | `1.9.22` |
 
-## Требования
+## Platform targets
 
-- Min SDK: 29 (Android 10)
-- Target SDK: 34 (Android 14)
-- Compile SDK: 34
-- Java: 17
+- Min SDK: `29`
+- Target SDK: `34`
+- Compile SDK: `34`
+- Java: `17`
