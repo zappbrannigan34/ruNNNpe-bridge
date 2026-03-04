@@ -42,9 +42,12 @@ jobs:
           "version_name=$($tag.TrimStart('v'))" >> $env:GITHUB_OUTPUT
 
       - name: Prepare upload keystore
-        if: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 != '' }}
         shell: pwsh
         run: |
+          if ([string]::IsNullOrWhiteSpace("${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}")) {
+            Write-Host "ANDROID_UPLOAD_KEYSTORE_BASE64 is not set. Falling back to debug signing for release build validation."
+            exit 0
+          }
           New-Item -ItemType Directory -Path keystore -Force | Out-Null
           [System.IO.File]::WriteAllBytes(
             "keystore/upload.jks",
