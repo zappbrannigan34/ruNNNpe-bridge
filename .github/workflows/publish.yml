@@ -15,7 +15,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -31,16 +31,16 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: .\gradlew.bat assembleDebug
 
       - name: Resolve release tag
         id: tag
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "value=${{ inputs.tag_name }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          fi
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            "value=${{ inputs.tag_name }}" >> $env:GITHUB_OUTPUT
+          } else {
+            "value=${{ github.ref_name }}" >> $env:GITHUB_OUTPUT
+          }
 
       - name: Publish GitHub Release with APK
         uses: softprops/action-gh-release@v2

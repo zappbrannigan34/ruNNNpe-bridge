@@ -8,7 +8,7 @@ on:
 
 jobs:
   build-debug:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
 
     steps:
       - name: Checkout
@@ -24,7 +24,7 @@ jobs:
         uses: gradle/actions/setup-gradle@v3
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: .\gradlew.bat assembleDebug
 
       - name: Upload debug APK artifact
         uses: actions/upload-artifact@v4
