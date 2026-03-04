@@ -1,4 +1,4 @@
-# RUNN Bridge - Setup
+# ruNNNpe bridge - Setup
 
 ## Требования
 

@@ -47,7 +47,7 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           $tag = "${{ steps.tag.outputs.value }}"
-          Copy-Item "app/build/outputs/apk/debug/app-debug.apk" "dist/ruNNNpe-bridge-$tag.apk" -Force
+          Copy-Item "app/build/outputs/apk/debug/app-debug.apk" "dist/ruNNNpe bridge-$tag.apk" -Force
 
       - name: Publish GitHub Release with APK
         uses: softprops/action-gh-release@v2

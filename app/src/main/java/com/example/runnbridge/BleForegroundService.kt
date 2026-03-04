@@ -356,14 +356,14 @@ class BleForegroundService : Service() {
     }
 
     private fun createChannel() {
-        val channel = NotificationChannel(CH_ID, "RUNN Bridge", NotificationManager.IMPORTANCE_LOW).apply {
+        val channel = NotificationChannel(CH_ID, "ruNNNpe bridge", NotificationManager.IMPORTANCE_LOW).apply {
             description = "Background BLE monitoring"
         }
         getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
     }
 
     private fun notif(text: String) = NotificationCompat.Builder(this, CH_ID)
-        .setContentTitle("RUNN Bridge")
+        .setContentTitle("ruNNNpe bridge")
         .setContentText(text)
         .setSmallIcon(android.R.drawable.ic_menu_mylocation)
         .setOngoing(true)

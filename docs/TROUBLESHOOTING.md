@@ -3,22 +3,22 @@
 ## App is killed in background
 
 - Set battery mode to `Unrestricted` / `No limits`.
-- Enable autostart for RUNN Bridge.
+- Enable autostart for ruNNNpe bridge.
 - Keep notifications enabled for foreground service.
 
 ### Xiaomi
 
-- Settings -> Apps -> RUNN Bridge -> Battery -> No restrictions.
-- Security -> Autostart -> RUNN Bridge -> ON.
+- Settings -> Apps -> ruNNNpe bridge -> Battery -> No restrictions.
+- Security -> Autostart -> ruNNNpe bridge -> ON.
 
 ### Samsung
 
 - Settings -> Battery -> Background usage limits.
-- Exclude RUNN Bridge from sleeping apps.
+- Exclude ruNNNpe bridge from sleeping apps.
 
 ### Pixel / Stock Android
 
-- Settings -> Apps -> RUNN Bridge -> Battery -> Unrestricted.
+- Settings -> Apps -> ruNNNpe bridge -> Battery -> Unrestricted.
 
 ## RUNN is not found
 

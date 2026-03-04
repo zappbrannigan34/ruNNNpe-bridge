@@ -1,8 +1,8 @@
-# RUNN Bridge - Architecture
+# ruNNNpe bridge - Architecture
 
 ## Purpose
 
-RUNN Bridge receives treadmill telemetry from NPE RUNN and writes structured workout data to Health Connect.
+ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured workout data to Health Connect.
 
 ## Main components
 

@@ -1,4 +1,4 @@
-# ruNNNpe-bridge
+# ruNNNpe bridge
 
 [![Android Build](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml/badge.svg)](https://github.com/zappbrannigan34/ruNNNpe-bridge/actions/workflows/android-build.yml)
 [![Latest Release](https://img.shields.io/github/v/release/zappbrannigan34/ruNNNpe-bridge)](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
@@ -38,7 +38,7 @@ Android bridge between NPE RUNN and Google Health Connect.
 ## Download
 
 - Latest APK: [Releases](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
-- Release asset naming: `ruNNNpe-bridge-<tag>.apk`
+- Release asset naming: `ruNNNpe bridge-<tag>.apk`
 
 ## Quick start
 

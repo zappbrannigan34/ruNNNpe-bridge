@@ -57,11 +57,11 @@ object HealthConnectWriter {
             profile = profile
         )
         val activelyRecordedMetadata = Metadata(
-            device = Device(type = Device.TYPE_PHONE, manufacturer = "NPE", model = "RUNN Bridge"),
+            device = Device(type = Device.TYPE_PHONE, manufacturer = "NPE", model = "ruNNNpe bridge"),
             recordingMethod = Metadata.RECORDING_METHOD_ACTIVELY_RECORDED
         )
         val elevationGainMeters = estimateElevationGainMeters(w)
-        val sessionNotes = "RUNN Bridge auto-record; ${calories.equation}; elevGain=${"%.1f".format(elevationGainMeters)}m"
+        val sessionNotes = "ruNNNpe bridge auto-record; ${calories.equation}; elevGain=${"%.1f".format(elevationGainMeters)}m"
 
         val records = mutableListOf<Record>()
 

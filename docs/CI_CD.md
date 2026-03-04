@@ -15,7 +15,7 @@ Actions:
 1. Checkout code.
 2. Setup JDK 17.
 3. Build debug APK (`assembleDebug`).
-4. Rename APK to `ruNNNpe-bridge-debug.apk`.
+4. Rename APK to `ruNNNpe bridge-debug.apk`.
 5. Upload APK artifact.
 
 ## Publish workflow
@@ -30,7 +30,7 @@ Triggers:
 Actions:
 
 1. Build debug APK.
-2. Rename APK to `ruNNNpe-bridge-<tag>.apk`.
+2. Rename APK to `ruNNNpe bridge-<tag>.apk`.
 3. Create/update GitHub Release.
 4. Attach APK to release assets.
 

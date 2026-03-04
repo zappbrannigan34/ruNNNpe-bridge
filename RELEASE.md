@@ -33,4 +33,4 @@ Option B:
 
 ## Expected release artifact
 
-- `ruNNNpe-bridge-<tag>.apk`
+- `ruNNNpe bridge-<tag>.apk`
