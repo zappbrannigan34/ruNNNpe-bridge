@@ -14,9 +14,6 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { it != null }
 
-val envVersionCode = System.getenv("ANDROID_VERSION_CODE")?.toIntOrNull()
-val envVersionName = System.getenv("ANDROID_VERSION_NAME")?.takeIf { it.isNotBlank() }
-
 android {
     namespace = "com.example.runnbridge"
     compileSdk = 35
@@ -25,8 +22,8 @@ android {
         applicationId = "com.zappbrannigan34.runnnpebridge"
         minSdk = 29
         targetSdk = 35
-        versionCode = envVersionCode ?: 6
-        versionName = envVersionName ?: "0.1.4"
+        versionCode = 7
+        versionName = "0.1.5"
     }
 
     signingConfigs {
@@ -43,10 +40,8 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = if (hasReleaseSigning) {
-                signingConfigs.getByName("release")
-            } else {
-                signingConfigs.getByName("debug")
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
             }
         }
     }
