@@ -1,0 +1,5 @@
+F-Droid compatibility update.
+
+- make release version metadata static for F-Droid checkupdates
+- keep release unsigned when signing secrets are not provided
+- align upstream `.fdroid.yml` with v0.1.5 / versionCode 7

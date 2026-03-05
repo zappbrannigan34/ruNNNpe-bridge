@@ -20,13 +20,13 @@ RepoType: git
 Repo: https://github.com/zappbrannigan34/ruNNNpe-bridge.git
 
 Builds:
-  - versionName: 0.1.4
-    versionCode: 6
-    commit: v0.1.4
+  - versionName: 0.1.5
+    versionCode: 7
+    commit: v0.1.5
     gradle:
       - yes
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
-CurrentVersion: 0.1.4
-CurrentVersionCode: 6
+CurrentVersion: 0.1.5
+CurrentVersionCode: 7
