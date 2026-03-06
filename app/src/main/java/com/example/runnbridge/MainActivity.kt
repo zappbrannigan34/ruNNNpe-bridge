@@ -44,8 +44,11 @@ import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
+import androidx.health.connect.client.records.FloorsClimbedRecord
 import androidx.health.connect.client.records.HeightRecord
+import androidx.health.connect.client.records.Record
 import androidx.health.connect.client.records.SpeedRecord
+import androidx.health.connect.client.records.StepsCadenceRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.ReadRecordsRequest
@@ -58,12 +61,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.util.Locale
+import kotlin.reflect.KClass
 
 class MainActivity : AppCompatActivity() {
     companion object {
         private const val PREFS_NAME = "runn"
+        private const val PREF_RUNN_MAC = "mac"
+        private const val PREF_RUNN_PROFILE = "runn_profile"
+        private const val PREF_RUNN_CONNECTED = "runn_connected"
+        private const val PREF_HR_CONNECTED = "hr_connected"
         private const val PREF_HR_MAC = "hr_mac"
         private const val PREF_LOG_TEXT = "service_log_text"
+        private const val PREF_INITIAL_PERMISSIONS_DONE = "initial_permissions_done"
         private const val PREF_DURATION_MS = "telemetry_duration_ms"
         private const val PREF_CURRENT_SPEED_KMH = "telemetry_current_speed_kmh"
         private const val PREF_CURRENT_INCLINE = "telemetry_current_incline"
@@ -76,6 +85,14 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_AGE_YEARS = "age_years"
         private const val PREF_SEX = "sex"
         private const val PREF_BMR_WATTS = "bmr_watts"
+        private const val PREF_STEP_LENGTH_M = "step_length_m"
+        private const val STEP_LENGTH_LOOKBACK_DAYS = 14L
+        private const val STEP_LENGTH_MIN_STEPS = 2_000.0
+        private const val STEP_LENGTH_MIN_DISTANCE_M = 1_000.0
+        private const val STEP_LENGTH_MIN_M = 0.45
+        private const val STEP_LENGTH_MAX_M = 1.2
+        private const val HC_READ_PAGE_SIZE = 500
+        private const val HC_READ_MAX_PAGES = 6
     }
 
     private lateinit var statusText: TextView
@@ -89,6 +106,9 @@ class MainActivity : AppCompatActivity() {
     private var telemetryReceiverRegistered = false
     private var pendingCompanionMac: String? = null
     private var afterBluetoothEnabled: (() -> Unit)? = null
+    private var afterBlePermissionsGranted: (() -> Unit)? = null
+    private var afterHealthPermissionsGranted: (() -> Unit)? = null
+    private var afterNotificationPermissionResult: ((Boolean) -> Unit)? = null
 
     private val hcPerms = setOf(
         HealthPermission.getReadPermission(WeightRecord::class),
@@ -98,10 +118,14 @@ class MainActivity : AppCompatActivity() {
         HealthPermission.getReadPermission(BasalMetabolicRateRecord::class),
         HealthPermission.getWritePermission(BasalMetabolicRateRecord::class),
         HealthPermission.getWritePermission(ExerciseSessionRecord::class),
+        HealthPermission.getReadPermission(DistanceRecord::class),
         HealthPermission.getWritePermission(SpeedRecord::class),
         HealthPermission.getWritePermission(DistanceRecord::class),
+        HealthPermission.getReadPermission(StepsRecord::class),
         HealthPermission.getWritePermission(StepsRecord::class),
+        HealthPermission.getWritePermission(StepsCadenceRecord::class),
         HealthPermission.getWritePermission(ElevationGainedRecord::class),
+        HealthPermission.getWritePermission(FloorsClimbedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.HeartRateRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class),
@@ -113,7 +137,10 @@ class MainActivity : AppCompatActivity() {
 
             intent.getStringExtra(BleForegroundService.EXTRA_LOG_LINE)
                 ?.takeIf { it.isNotBlank() }
-                ?.let { refreshLogFromPrefs() }
+                ?.let {
+                    refreshLogFromPrefs()
+                    refreshMetricsFromPrefs()
+                }
 
             if (!intent.hasExtra(BleForegroundService.EXTRA_DURATION_MS)) return
 
@@ -146,9 +173,13 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { _ ->
         if (hasAllPermissions(requiredBlePermissions())) {
-            ensureBluetoothEnabled { requestHealthPerms() }
+            val next = afterBlePermissionsGranted
+            afterBlePermissionsGranted = null
+            next?.invoke()
+        } else {
+            afterBlePermissionsGranted = null
+            statusText.text = "❌ BLE permissions required"
         }
-        else statusText.text = "❌ BLE permissions required"
     }
 
     private val enableBluetoothLauncher = registerForActivityResult(
@@ -169,15 +200,20 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (!granted) log("Notification permission denied")
-        startMonitoringService()
+        val next = afterNotificationPermissionResult
+        afterNotificationPermissionResult = null
+        next?.invoke(granted)
     }
 
     private val hcPermLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
         if (granted.containsAll(hcPerms)) {
-            syncProfileFromHealthConnect { startBleScan() }
+            val next = afterHealthPermissionsGranted
+            afterHealthPermissionsGranted = null
+            syncProfileFromHealthConnect { next?.invoke() }
         } else {
+            afterHealthPermissionsGranted = null
             statusText.text = "❌ Health Connect permissions required"
         }
     }
@@ -252,7 +288,7 @@ class MainActivity : AppCompatActivity() {
 
         setContentView(ScrollView(this).apply { addView(root) })
 
-        val mac = prefs().getString("mac", null)
+        val mac = prefs().getString(PREF_RUNN_MAC, null)
         statusText.text = if (mac != null) {
             "✅ Monitoring active\nRUNN: $mac"
         } else {
@@ -266,7 +302,7 @@ class MainActivity : AppCompatActivity() {
         logText.text = prefs().getString(PREF_LOG_TEXT, "")
         fillProfileInputsFromPrefs()
         refreshMetricsFromPrefs()
-        checkHealthConnectOnStartup()
+        maybeRequestInitialPermissionsOnFirstLaunch()
     }
 
     override fun onStart() {
@@ -301,11 +337,44 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        requestBlePermissions()
+        requestBlePermissions {
+            ensureBluetoothEnabled {
+                requestHealthPerms { startBleScan() }
+            }
+        }
     }
 
-    private fun requestHealthPerms() {
+    private fun requestHealthPerms(onGranted: (() -> Unit)? = null) {
+        afterHealthPermissionsGranted = onGranted
         hcPermLauncher.launch(hcPerms)
+    }
+
+    private fun maybeRequestInitialPermissionsOnFirstLaunch() {
+        if (prefs().getBoolean(PREF_INITIAL_PERMISSIONS_DONE, false)) {
+            checkHealthConnectOnStartup()
+            return
+        }
+
+        if (HealthConnectClient.getSdkStatus(this) != HealthConnectClient.SDK_AVAILABLE) {
+            checkHealthConnectOnStartup()
+            return
+        }
+
+        requestBlePermissions {
+            ensureBluetoothEnabled {
+                requestHealthPerms {
+                    requestNotificationPermission { notificationGranted ->
+                        requestBatteryExemption()
+                        if (notificationGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                            prefs().edit().putBoolean(PREF_INITIAL_PERMISSIONS_DONE, true).apply()
+                            log("Initial permissions completed")
+                        } else {
+                            log("Initial permissions incomplete: notification denied")
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @SuppressLint("MissingPermission")
@@ -333,7 +402,7 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     private fun onRunnFound(device: BluetoothDevice) {
-        prefs().edit().putString("mac", device.address).apply()
+        prefs().edit().putString(PREF_RUNN_MAC, device.address).apply()
         BleScanReceiver.startBackgroundScan(this, "device-selected")
         ensureCompanionPresence(device.address)
         requestBatteryExemption()
@@ -408,12 +477,13 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestBlePermissions() {
+    private fun requestBlePermissions(onGranted: () -> Unit) {
         val required = requiredBlePermissions()
         if (hasAllPermissions(required)) {
-            ensureBluetoothEnabled { requestHealthPerms() }
+            onGranted()
             return
         }
+        afterBlePermissionsGranted = onGranted
         val missing = required.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
@@ -438,16 +508,24 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun ensureNotificationPermissionAndStartService() {
+        requestNotificationPermission { _ -> startMonitoringService() }
+    }
+
+    private fun requestNotificationPermission(onResult: (Boolean) -> Unit) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-            startMonitoringService()
+            onResult(true)
             return
         }
         val granted = ContextCompat.checkSelfPermission(
             this,
             Manifest.permission.POST_NOTIFICATIONS
         ) == PackageManager.PERMISSION_GRANTED
-        if (granted) startMonitoringService()
-        else notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        if (granted) {
+            onResult(true)
+        } else {
+            afterNotificationPermissionResult = onResult
+            notificationPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
     }
 
     private fun startMonitoringService() {
@@ -548,10 +626,22 @@ class MainActivity : AppCompatActivity() {
                     null
                 }
 
+                val latestStepLengthMeters = if (
+                    granted.contains(HealthPermission.getReadPermission(StepsRecord::class)) &&
+                    granted.contains(HealthPermission.getReadPermission(DistanceRecord::class))
+                ) {
+                    withContext(Dispatchers.IO) {
+                        inferStepLengthFromHealthConnect(hc, packageName)
+                    }
+                } else {
+                    null
+                }
+
                 val editor = prefs().edit()
                 if (latestWeight != null) editor.putFloat(PREF_WEIGHT_KG, latestWeight.toFloat())
                 if (latestHeightCm != null) editor.putFloat(PREF_HEIGHT_CM, latestHeightCm.toFloat())
                 if (latestBmrWatts != null) editor.putFloat(PREF_BMR_WATTS, latestBmrWatts.toFloat())
+                if (latestStepLengthMeters != null) editor.putFloat(PREF_STEP_LENGTH_M, latestStepLengthMeters.toFloat())
 
                 if (latestWeight != null && latestHeightCm != null && latestHeightCm > 0.0) {
                     val bmi = CalorieEngine.bmi(latestWeight, latestHeightCm)
@@ -568,6 +658,64 @@ class MainActivity : AppCompatActivity() {
                 onDone?.invoke()
             }
         }
+    }
+
+    private suspend fun inferStepLengthFromHealthConnect(
+        hc: HealthConnectClient,
+        selfPackageName: String
+    ): Double? {
+        val now = Instant.now()
+        val from = now.minusSeconds(STEP_LENGTH_LOOKBACK_DAYS * 24L * 60L * 60L)
+
+        val steps = readRecordsPaged(
+            hc = hc,
+            recordType = StepsRecord::class,
+            from = from,
+            to = now
+        ).filterNot { it.metadata.dataOrigin.packageName == selfPackageName }
+
+        val distances = readRecordsPaged(
+            hc = hc,
+            recordType = DistanceRecord::class,
+            from = from,
+            to = now
+        ).filterNot { it.metadata.dataOrigin.packageName == selfPackageName }
+
+        val totalSteps = steps.sumOf { it.count.toDouble() }
+        val totalDistanceMeters = distances.sumOf { it.distance.inMeters }
+
+        if (totalSteps < STEP_LENGTH_MIN_STEPS) return null
+        if (totalDistanceMeters < STEP_LENGTH_MIN_DISTANCE_M) return null
+
+        val stepLength = totalDistanceMeters / totalSteps
+        return stepLength.takeIf { it in STEP_LENGTH_MIN_M..STEP_LENGTH_MAX_M }
+    }
+
+    private suspend fun <T : Record> readRecordsPaged(
+        hc: HealthConnectClient,
+        recordType: KClass<T>,
+        from: Instant,
+        to: Instant
+    ): List<T> {
+        val records = mutableListOf<T>()
+        var pageToken: String? = null
+
+        repeat(HC_READ_MAX_PAGES) {
+            val response = hc.readRecords(
+                ReadRecordsRequest(
+                    recordType = recordType,
+                    timeRangeFilter = TimeRangeFilter.between(from, to),
+                    ascendingOrder = false,
+                    pageSize = HC_READ_PAGE_SIZE,
+                    pageToken = pageToken
+                )
+            )
+            records += response.records
+            pageToken = response.pageToken
+            if (pageToken.isNullOrBlank()) return records
+        }
+
+        return records
     }
 
     private fun saveManualProfile() {
@@ -692,7 +840,11 @@ class MainActivity : AppCompatActivity() {
         val bmi = prefs().getFloat(PREF_BMI, 0f).toDouble()
         val age = prefs().getInt(PREF_AGE_YEARS, 0)
         val bmrWatts = prefs().getFloat(PREF_BMR_WATTS, 0f).toDouble()
+        val runnMac = prefs().getString(PREF_RUNN_MAC, null)
+        val runnProfile = prefs().getString(PREF_RUNN_PROFILE, null)
+        val runnConnected = prefs().getBoolean(PREF_RUNN_CONNECTED, false)
         val hrMac = prefs().getString(PREF_HR_MAC, null)
+        val hrConnected = prefs().getBoolean(PREF_HR_CONNECTED, false)
 
         metricsText.text = buildString {
             append("Time: ${formatDuration(durationMs)}\n")
@@ -706,7 +858,11 @@ class MainActivity : AppCompatActivity() {
             append("Sex: ${selectedSexFromPrefs().name.lowercase(Locale.US)}\n")
             if (bmrWatts > 0.0) append(String.format(Locale.US, "BMR: %.1f W\n", bmrWatts))
             if (heartRateBpm != null) append("Heart rate: $heartRateBpm bpm\n")
-            append("HR sensor: ${hrMac ?: "not selected"}")
+            append("RUNN sensor: ${runnMac ?: "not selected"}\n")
+            append("RUNN state: ${if (runnConnected) "connected" else "disconnected"}\n")
+            append("RUNN profile: ${runnProfile ?: "waiting"}\n")
+            append("HR sensor: ${hrMac ?: "not selected"}\n")
+            append("HR state: ${if (hrConnected) "connected" else "disconnected"}")
         }
     }
 

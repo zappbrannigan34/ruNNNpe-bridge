@@ -42,6 +42,9 @@ class BleForegroundService : Service() {
         private const val PREF_CAL_NET = "telemetry_cal_net"
         private const val PREF_CAL_GROSS = "telemetry_cal_gross"
         private const val PREF_HEART_RATE_BPM = "telemetry_heart_rate_bpm"
+        private const val PREF_RUNN_PROFILE = "runn_profile"
+        private const val PREF_RUNN_CONNECTED = "runn_connected"
+        private const val PREF_HR_CONNECTED = "hr_connected"
         private val FTMS_SVC  = UUID.fromString("00001826-0000-1000-8000-00805f9b34fb")
         private val FTMS_CHAR = UUID.fromString("00002acd-0000-1000-8000-00805f9b34fb")
         private val RSC_SVC   = UUID.fromString("00001814-0000-1000-8000-00805f9b34fb")
@@ -49,8 +52,8 @@ class BleForegroundService : Service() {
         private val HR_SVC    = UUID.fromString("0000180d-0000-1000-8000-00805f9b34fb")
         private val HR_CHAR   = UUID.fromString("00002a37-0000-1000-8000-00805f9b34fb")
         private val CCC       = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
-        private const val SCAN_DURATION_MS = 5_000L
-        private const val SCAN_INTERVAL_MS = 30_000L
+        private const val SCAN_DURATION_MS = 8_000L
+        private const val SCAN_INTERVAL_MS = 10_000L
         private const val IDLE_CHECK_MS = 10_000L
         private const val TELEMETRY_PUSH_INTERVAL_MS = 500L
     }
@@ -73,6 +76,9 @@ class BleForegroundService : Service() {
     private var runnConnecting = false
     private var hrConnecting = false
     private var lastTelemetryPushMs = 0L
+    private val activeScanSettings = ScanSettings.Builder()
+        .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+        .build()
     private lateinit var workout: WorkoutStateMachine
     private var liveCalorieStartMs = 0L
     private val liveSpeedSamples = mutableListOf<Pair<Long, Float>>()
@@ -98,6 +104,11 @@ class BleForegroundService : Service() {
         if (targetMac == null) { stopSelf(); return }
         BleScanReceiver.stopBackgroundScan(this, "service-create")
         appendServiceLog("Service started. Weight=${"%.1f".format(weightKg)} kg")
+        prefs().edit()
+            .remove(PREF_RUNN_PROFILE)
+            .putBoolean(PREF_RUNN_CONNECTED, false)
+            .putBoolean(PREF_HR_CONNECTED, false)
+            .apply()
 
         scanner = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
             .adapter?.bluetoothLeScanner
@@ -160,10 +171,9 @@ class BleForegroundService : Service() {
                 val needsHr = !hrConnected && !hrConnecting
                 if (needsRunn || needsHr) {
                     scanning = true
-                    scanner?.startScan(null, ScanSettings.Builder().build(), scanCallback)
+                    scanner?.startScan(null, activeScanSettings, scanCallback)
                     delay(SCAN_DURATION_MS)
-                    scanner?.stopScan(scanCallback)
-                    scanning = false
+                    stopActiveScan()
                 }
                 delay(SCAN_INTERVAL_MS)
             }
@@ -186,7 +196,8 @@ class BleForegroundService : Service() {
             if (device.address.equals(targetMac, ignoreCase = true) && !connected && !runnConnecting) {
                 runnConnecting = true
                 appendServiceLog("RUNN found: ${device.address}")
-                device.connectGatt(this@BleForegroundService, true, gattCallback, BluetoothDevice.TRANSPORT_LE)
+                stopActiveScan()
+                device.connectGatt(this@BleForegroundService, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
                 return
             }
 
@@ -202,9 +213,10 @@ class BleForegroundService : Service() {
                     appendServiceLog("HR sensor found: ${device.address}")
                 }
                 hrConnecting = true
+                stopActiveScan()
                 hrGatt = device.connectGatt(
                     this@BleForegroundService,
-                    true,
+                    false,
                     hrGattCallback,
                     BluetoothDevice.TRANSPORT_LE
                 )
@@ -219,11 +231,17 @@ class BleForegroundService : Service() {
                 this@BleForegroundService.gatt = gatt
                 runnConnecting = false
                 connected = true
+                prefs().edit().putBoolean(PREF_RUNN_CONNECTED, true).apply()
                 appendServiceLog("BLE connected")
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 connected = false
                 runnConnecting = false
+                profile = null
+                prefs().edit()
+                    .remove(PREF_RUNN_PROFILE)
+                    .putBoolean(PREF_RUNN_CONNECTED, false)
+                    .apply()
                 appendServiceLog("BLE disconnected")
             }
         }
@@ -235,15 +253,19 @@ class BleForegroundService : Service() {
             when {
                 ftmsChar != null -> {
                     profile = "FTMS"
+                    prefs().edit().putString(PREF_RUNN_PROFILE, profile).apply()
                     appendServiceLog("Profile FTMS")
                     enableNotify(gatt, ftmsChar)
                 }
                 rscChar != null -> {
                     profile = "RSC"
+                    prefs().edit().putString(PREF_RUNN_PROFILE, profile).apply()
                     appendServiceLog("Profile RSC")
                     enableNotify(gatt, rscChar)
                 }
                 else -> {
+                    profile = null
+                    prefs().edit().remove(PREF_RUNN_PROFILE).apply()
                     appendServiceLog("No supported profile found")
                 }
             }
@@ -266,11 +288,13 @@ class BleForegroundService : Service() {
                 hrGatt = gatt
                 hrConnecting = false
                 hrConnected = true
+                prefs().edit().putBoolean(PREF_HR_CONNECTED, true).apply()
                 appendServiceLog("HR BLE connected")
                 gatt.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 hrConnected = false
                 hrConnecting = false
+                prefs().edit().putBoolean(PREF_HR_CONNECTED, false).apply()
                 appendServiceLog("HR BLE disconnected")
                 triggerHrReconnectScan("hr-disconnected")
             }
@@ -306,11 +330,17 @@ class BleForegroundService : Service() {
 
             scanning = true
             appendServiceLog("Scanning for HR sensor ($reason)")
-            scanner?.startScan(null, ScanSettings.Builder().build(), scanCallback)
+            scanner?.startScan(null, activeScanSettings, scanCallback)
             delay(SCAN_DURATION_MS)
-            scanner?.stopScan(scanCallback)
-            scanning = false
+            stopActiveScan()
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopActiveScan() {
+        if (!scanning) return
+        runCatching { scanner?.stopScan(scanCallback) }
+        scanning = false
     }
 
     private fun ScanResult.hasHrService(): Boolean {
@@ -391,6 +421,11 @@ class BleForegroundService : Service() {
         hrGatt?.close()
         hrGatt = null
         hrConnected = false
+        prefs().edit()
+            .putBoolean(PREF_RUNN_CONNECTED, false)
+            .putBoolean(PREF_HR_CONNECTED, false)
+            .remove(PREF_RUNN_PROFILE)
+            .apply()
         gatt?.close()
         super.onDestroy()
     }

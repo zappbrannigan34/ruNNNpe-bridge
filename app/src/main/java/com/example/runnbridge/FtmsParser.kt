@@ -6,6 +6,8 @@ object FtmsParser {
         val speedMps: Float,
         val totalDistanceM: Float,
         val inclinePercent: Float,
+        val positiveElevationGainM: Float?,
+        val negativeElevationGainM: Float?,
         val elapsedTimeSec: Int,
         val heartRate: Int,
         val valid: Boolean
@@ -19,6 +21,8 @@ object FtmsParser {
 
         var speed = 0f; var dist = 0f
         var incline = 0f; var elapsed = 0; var hr = 0
+        var positiveElevationGain: Float? = null
+        var negativeElevationGain: Float? = null
 
         // Bit 0 = 0 → speed present (INVERTED flag!)
         if (flags and 0x0001 == 0 && off + 2 <= data.size) {
@@ -41,7 +45,12 @@ object FtmsParser {
             incline = s16(data, off) / 10f; off += 4
         }
 
-        if (flags and 0x0010 != 0) off += 4  // elevation gain
+        if (flags and 0x0010 != 0 && off + 4 <= data.size) {
+            positiveElevationGain = u16(data, off) / 10f
+            off += 2
+            negativeElevationGain = u16(data, off) / 10f
+            off += 2
+        }
         if (flags and 0x0020 != 0) off += 1  // pace
         if (flags and 0x0040 != 0) off += 1  // optional pace
         if (flags and 0x0080 != 0) off += 5  // energy
@@ -58,7 +67,16 @@ object FtmsParser {
             elapsed = u16(data, off); off += 2
         }
 
-        return TreadmillSnapshot(speed, dist, incline, elapsed, hr, true)
+        return TreadmillSnapshot(
+            speedMps = speed,
+            totalDistanceM = dist,
+            inclinePercent = incline,
+            positiveElevationGainM = positiveElevationGain,
+            negativeElevationGainM = negativeElevationGain,
+            elapsedTimeSec = elapsed,
+            heartRate = hr,
+            valid = true
+        )
     }
 
     // RSC — Running Speed and Cadence (0x2A53)
@@ -95,5 +113,14 @@ object FtmsParser {
                 ((d[o+2].toLong() and 0xFF) shl 16) or ((d[o+3].toLong() and 0xFF) shl 24)
         return v.toFloat()
     }
-    private fun emptyTreadmill() = TreadmillSnapshot(0f, 0f, 0f, 0, 0, false)
+    private fun emptyTreadmill() = TreadmillSnapshot(
+        speedMps = 0f,
+        totalDistanceM = 0f,
+        inclinePercent = 0f,
+        positiveElevationGainM = null,
+        negativeElevationGainM = null,
+        elapsedTimeSec = 0,
+        heartRate = 0,
+        valid = false
+    )
 }
