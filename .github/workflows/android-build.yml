@@ -33,8 +33,17 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
+          $releaseApkSigned = "app/build/outputs/apk/release/app-release.apk"
+          $releaseApkUnsigned = "app/build/outputs/apk/release/app-release-unsigned.apk"
+          if (Test-Path $releaseApkSigned) {
+            $releaseApk = $releaseApkSigned
+          } elseif (Test-Path $releaseApkUnsigned) {
+            $releaseApk = $releaseApkUnsigned
+          } else {
+            throw "Release APK not found at signed or unsigned expected paths."
+          }
           Copy-Item "app/build/outputs/apk/debug/app-debug.apk" "dist/ruNNNpe bridge-debug.apk" -Force
-          Copy-Item "app/build/outputs/apk/release/app-release.apk" "dist/ruNNNpe bridge-release.apk" -Force
+          Copy-Item $releaseApk "dist/ruNNNpe bridge-release.apk" -Force
           Copy-Item "app/build/outputs/bundle/release/app-release.aab" "dist/ruNNNpe bridge-release.aab" -Force
 
       - name: Upload build artifacts

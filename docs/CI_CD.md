@@ -15,7 +15,7 @@ Actions:
 1. Checkout code.
 2. Setup JDK 17.
 3. Build debug and release outputs (`assembleDebug`, `assembleRelease`, `bundleRelease`).
-4. Normalize artifact names (`.apk` and `.aab`).
+4. Normalize artifact names (`.apk` and `.aab`) with signed/unsigned release APK fallback handling.
 5. Upload build artifacts.
 
 ## Publish workflow
@@ -43,7 +43,7 @@ Actions:
 - `ANDROID_UPLOAD_KEY_ALIAS`
 - `ANDROID_UPLOAD_KEY_PASSWORD`
 
-If these secrets are absent, `assembleRelease` still completes with fallback debug signing for validation only. Do not upload fallback-signed artifacts to Play production.
+If these secrets are absent, `assembleRelease` still completes and produces `app-release-unsigned.apk` for validation only. Do not upload unsigned artifacts to Play production.
 
 ## How to publish manually
 

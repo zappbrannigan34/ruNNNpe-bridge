@@ -69,7 +69,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Path dist -Force | Out-Null
           $tag = "${{ steps.tag.outputs.value }}"
-          Copy-Item "app/build/outputs/apk/release/app-release.apk" "dist/ruNNNpe bridge-$tag.apk" -Force
+          $releaseApkSigned = "app/build/outputs/apk/release/app-release.apk"
+          $releaseApkUnsigned = "app/build/outputs/apk/release/app-release-unsigned.apk"
+          if (Test-Path $releaseApkSigned) {
+            $releaseApk = $releaseApkSigned
+          } elseif (Test-Path $releaseApkUnsigned) {
+            $releaseApk = $releaseApkUnsigned
+          } else {
+            throw "Release APK not found at signed or unsigned expected paths."
+          }
+          Copy-Item $releaseApk "dist/ruNNNpe bridge-$tag.apk" -Force
           Copy-Item "app/build/outputs/bundle/release/app-release.aab" "dist/ruNNNpe bridge-$tag.aab" -Force
 
       - name: Publish GitHub Release with artifacts
