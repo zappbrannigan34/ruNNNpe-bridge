@@ -20,6 +20,6 @@
 ## Platform targets
 
 - Min SDK: `29`
-- Target SDK: `34`
-- Compile SDK: `34`
+- Target SDK: `35`
+- Compile SDK: `35`
 - Java: `17`
