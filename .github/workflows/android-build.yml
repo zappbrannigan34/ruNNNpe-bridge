@@ -79,9 +79,9 @@ jobs:
           notes_file="dist/pre-release-notes.md"
           {
             echo "## What to install"
-            echo "- \\`ruNNNpe bridge-release.apk\\` - install this for normal testing (closest to production behavior)."
-            echo "- \\`ruNNNpe bridge-debug.apk\\` - developer/debug build (use only if you need debug-specific diagnostics)."
-            echo "- \\`ruNNNpe bridge-release.aab\\` - Play Console upload artifact, not for direct phone install."
+            echo "- ruNNNpe bridge-release.apk - install this for normal testing (closest to production behavior)."
+            echo "- ruNNNpe bridge-debug.apk - developer/debug build (use only if you need debug-specific diagnostics)."
+            echo "- ruNNNpe bridge-release.aab - Play Console upload artifact, not for direct phone install."
             echo ""
             echo "## Change history"
           } > "${notes_file}"

@@ -129,8 +129,8 @@ jobs:
           tag="${GITHUB_REF_NAME}"
           {
             echo "## What to install"
-            echo "- \\`ruNNNpe bridge-${tag}.apk\\` - installable Android package for production-like testing and user installs."
-            echo "- \\`ruNNNpe bridge-${tag}.aab\\` - Play Console upload artifact, not for direct phone install."
+            echo "- ruNNNpe bridge-${tag}.apk - installable Android package for production-like testing and user installs."
+            echo "- ruNNNpe bridge-${tag}.aab - Play Console upload artifact, not for direct phone install."
             echo ""
             echo "## Change history"
           } > "${notes_file}"
