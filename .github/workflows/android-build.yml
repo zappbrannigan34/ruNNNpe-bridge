@@ -103,6 +103,7 @@ jobs:
         if: github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'main')
         env:
           BEFORE_SHA: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           notes_file="dist/pre-release-notes.md"
           {
@@ -114,9 +115,18 @@ jobs:
             echo "## Change history"
           } > "${notes_file}"
 
-          if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
-            if git log --oneline "${BEFORE_SHA}..${GITHUB_SHA}" | grep -q .; then
-              git log --pretty=format:'- `%h` %s' "${BEFORE_SHA}..${GITHUB_SHA}" >> "${notes_file}"
+          range_start=""
+          if gh release view pre-release >/dev/null 2>&1; then
+            range_start=$(gh release view pre-release --json targetCommitish --jq .targetCommitish)
+          fi
+
+          if [ -z "${range_start}" ]; then
+            range_start="${BEFORE_SHA}"
+          fi
+
+          if [ -n "${range_start}" ] && [ "${range_start}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${range_start}^{commit}" 2>/dev/null; then
+            if git log --oneline "${range_start}..${GITHUB_SHA}" | grep -q .; then
+              git log --pretty=format:'- `%h` %s' "${range_start}..${GITHUB_SHA}" >> "${notes_file}"
             else
               echo "- No commit delta detected in this push." >> "${notes_file}"
             fi
