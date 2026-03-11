@@ -61,11 +61,11 @@ If you are searching for terms like `NPE RUNN Health Connect`, `Android treadmil
 
 ### ruNNNpe bridge app screen
 
-![ruNNNpe bridge app screen](docs/images/runnbridge-app-screen.jpg)
+<img src="docs/images/runnbridge-app-screen.jpg" alt="ruNNNpe bridge app screen" width="50%" />
 
 ### NPE RUNN device
 
-![NPE RUNN device](docs/images/npe-runn-device.webp)
+<img src="docs/images/npe-runn-device.webp" alt="NPE RUNN device" width="50%" />
 
 ## Download
 
