@@ -33,6 +33,7 @@ ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured 
 - `HealthConnectWriter.kt`
   - Writes workout to Health Connect records.
   - Writes series records in chunks to avoid Health Connect record size limits.
+  - Writes a virtual treadmill `ExerciseRoute` with altitude profile when route permission is granted.
   - Uses fallback step estimation when cadence-based steps are missing.
   - Uses HC-derived personal step length when available.
   - Writes floors climbed from elevation gain when permission is granted.
@@ -59,6 +60,7 @@ ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured 
 
 - `ExerciseSessionRecord`
 - `ExerciseSegment` (walking/running treadmill)
+- `ExerciseRoute` (virtual treadmill loop with altitude profile, permission-gated)
 - `SpeedRecord`
 - `DistanceRecord`
 - `StepsRecord`
@@ -73,4 +75,4 @@ ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured 
 
 - Health Connect has no dedicated incline data type; incline is represented indirectly (calories/elevation/floors).
 - Elevation profile charts in consumer apps usually require route altitude points (`ExerciseRoute`).
-- For treadmill workouts without GPS route points, elevation summary records (`ElevationGainedRecord`, `FloorsClimbedRecord`) can sync, while chart rendering depends on the consumer app.
+- For treadmill workouts, the app writes a synthetic local route to provide route altitude points; if route permission is denied, only elevation summary records (`ElevationGainedRecord`, `FloorsClimbedRecord`) are available.

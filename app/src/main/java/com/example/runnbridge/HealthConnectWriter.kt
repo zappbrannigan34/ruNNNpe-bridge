@@ -1,12 +1,17 @@
 package com.example.runnbridge
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
+import androidx.health.connect.client.records.ExerciseRoute
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
@@ -26,7 +31,10 @@ import androidx.health.connect.client.units.Power
 import androidx.health.connect.client.units.Velocity
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.roundToLong
+import kotlin.math.sin
 
 object HealthConnectWriter {
     private const val TAG = "HCWriter"
@@ -36,7 +44,26 @@ object HealthConnectWriter {
     private const val MAX_RECORDS_PER_INSERT = 900
     private const val DEFAULT_STEP_LENGTH_METERS = 0.78
     private const val METERS_PER_FLOOR = 3.048
+    private const val METERS_PER_DEGREE_LAT = 111_320.0
+    private const val VIRTUAL_ROUTE_BASE_SAMPLE_MS = 10_000L
+    private const val VIRTUAL_ROUTE_MAX_POINTS = 600
+    private const val VIRTUAL_ROUTE_LOOP_RADIUS_METERS = 20.0
+    private const val VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M = 5.0
+    private const val VIRTUAL_ROUTE_VERTICAL_ACCURACY_M = 2.0
+    private const val VIRTUAL_ROUTE_FALLBACK_LAT = 0.0
+    private const val VIRTUAL_ROUTE_FALLBACK_LON = 0.0
+    private const val VIRTUAL_ROUTE_FALLBACK_ALT_M = 20.0
+    private const val WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
     private const val PREF_STEP_LENGTH_M = "step_length_m"
+    private const val PREF_ROUTE_ANCHOR_LAT = "route_anchor_lat"
+    private const val PREF_ROUTE_ANCHOR_LON = "route_anchor_lon"
+    private const val PREF_ROUTE_ANCHOR_ALT = "route_anchor_alt"
+
+    private data class RouteAnchor(
+        val latitude: Double,
+        val longitude: Double,
+        val altitudeMeters: Double
+    )
 
     suspend fun writeWorkout(ctx: Context, w: WorkoutStateMachine.WorkoutData) {
         val hc = HealthConnectClient.getOrCreate(ctx)
@@ -90,6 +117,11 @@ object HealthConnectWriter {
             elevationGainMeters = elevationGainMeters,
             hasPermission = grantedPermissions.contains(HealthPermission.getWritePermission(FloorsClimbedRecord::class))
         )
+        val exerciseRoute = buildVirtualExerciseRoute(
+            context = ctx,
+            workout = w,
+            hasPermission = grantedPermissions.contains(WRITE_EXERCISE_ROUTE_PERMISSION)
+        )
 
         val records = mutableListOf<Record>()
 
@@ -102,6 +134,7 @@ object HealthConnectWriter {
             title = "Treadmill (%.2f km)".format(w.distanceM / 1000),
             notes = sessionNotes,
             metadata = activelyRecordedMetadata,
+            exerciseRoute = exerciseRoute,
             segments = listOf(
                 ExerciseSegment(
                     startTime = si,
@@ -188,14 +221,191 @@ object HealthConnectWriter {
 
         Log.i(
             TAG,
-            "Prepared records total=${records.size} speedChunks=${speedRecords.size} hrChunks=${heartRateRecords.size} cadenceChunks=${cadenceRecords.size} elevChunks=${elevationRecords.size} steps=${stepsToWrite}${if (stepsEstimated) "(estimated)" else ""} floors=${floorsRecord?.floors ?: 0.0}"
+            "Prepared records total=${records.size} speedChunks=${speedRecords.size} hrChunks=${heartRateRecords.size} cadenceChunks=${cadenceRecords.size} elevChunks=${elevationRecords.size} steps=${stepsToWrite}${if (stepsEstimated) "(estimated)" else ""} floors=${floorsRecord?.floors ?: 0.0} route=${exerciseRoute?.route?.size ?: 0}"
         )
 
         insertInBatchesWithRetry(hc, records)
         Log.i(
             TAG,
-            "✅ ${records.size} records written, peakSpeed=${"%.2f".format(peakSpeedMps)}m/s elevGain=${"%.1f".format(elevationGainMeters)}m net=${"%.1f".format(calories.netCalories)} gross=${"%.1f".format(calories.grossCalories)}"
+            "✅ ${records.size} records written, peakSpeed=${"%.2f".format(peakSpeedMps)}m/s elevGain=${"%.1f".format(elevationGainMeters)}m net=${"%.1f".format(calories.netCalories)} gross=${"%.1f".format(calories.grossCalories)} route=${exerciseRoute?.route?.size ?: 0}"
         )
+    }
+
+    private fun buildVirtualExerciseRoute(
+        context: Context,
+        workout: WorkoutStateMachine.WorkoutData,
+        hasPermission: Boolean
+    ): ExerciseRoute? {
+        if (!hasPermission) return null
+        if (workout.endMs <= workout.startMs) return null
+
+        val anchor = resolveRouteAnchor(context)
+        val durationMs = (workout.endMs - workout.startMs).coerceAtLeast(1L)
+        val dynamicSampleIntervalMs = maxOf(
+            VIRTUAL_ROUTE_BASE_SAMPLE_MS,
+            (durationMs + VIRTUAL_ROUTE_MAX_POINTS - 2L) / (VIRTUAL_ROUTE_MAX_POINTS - 1L)
+        )
+        val routeLoopCircumferenceMeters = 2.0 * PI * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
+
+        val speedSamples = workout.speeds
+            .filter { (ts, _) -> ts in workout.startMs..workout.endMs }
+            .sortedBy { it.first }
+            .ifEmpty { listOf(workout.startMs to workout.lastSpeedMps) }
+
+        val inclineSamples = workout.inclines
+            .filter { (ts, _) -> ts in workout.startMs..workout.endMs }
+            .sortedBy { it.first }
+            .ifEmpty { listOf(workout.startMs to workout.lastInclinePercent) }
+
+        var speedIdx = speedSamples.indexOfLast { it.first <= workout.startMs }.coerceAtLeast(0)
+        var inclineIdx = inclineSamples.indexOfLast { it.first <= workout.startMs }.coerceAtLeast(0)
+
+        val route = mutableListOf<ExerciseRoute.Location>()
+        route +=
+            buildVirtualRouteLocation(
+                timeMs = workout.startMs,
+                anchor = anchor,
+                loopDistanceMeters = 0.0,
+                relativeAltitudeMeters = 0.0,
+                loopCircumferenceMeters = routeLoopCircumferenceMeters
+            )
+
+        var loopDistanceMeters = 0.0
+        var relativeAltitudeMeters = 0.0
+        var cursor = workout.startMs
+
+        while (cursor < workout.endMs && route.size < VIRTUAL_ROUTE_MAX_POINTS) {
+            while (speedIdx + 1 < speedSamples.size && speedSamples[speedIdx + 1].first <= cursor) {
+                speedIdx++
+            }
+            while (inclineIdx + 1 < inclineSamples.size && inclineSamples[inclineIdx + 1].first <= cursor) {
+                inclineIdx++
+            }
+
+            val nextMs = minOf(cursor + dynamicSampleIntervalMs, workout.endMs)
+            val deltaSeconds = (nextMs - cursor) / 1000.0
+            val speedMps = speedSamples[speedIdx].second.toDouble().coerceAtLeast(0.0)
+            val grade = (inclineSamples[inclineIdx].second.toDouble() / 100.0).coerceIn(-0.25, 0.25)
+            val horizontalMeters = speedMps * deltaSeconds
+            loopDistanceMeters += horizontalMeters
+            relativeAltitudeMeters += horizontalMeters * grade
+
+            route +=
+                buildVirtualRouteLocation(
+                    timeMs = nextMs,
+                    anchor = anchor,
+                    loopDistanceMeters = loopDistanceMeters,
+                    relativeAltitudeMeters = relativeAltitudeMeters,
+                    loopCircumferenceMeters = routeLoopCircumferenceMeters
+                )
+
+            cursor = nextMs
+        }
+
+        if (route.last().time != Instant.ofEpochMilli(workout.endMs)) {
+            route +=
+                buildVirtualRouteLocation(
+                    timeMs = workout.endMs,
+                    anchor = anchor,
+                    loopDistanceMeters = loopDistanceMeters,
+                    relativeAltitudeMeters = relativeAltitudeMeters,
+                    loopCircumferenceMeters = routeLoopCircumferenceMeters
+                )
+        }
+
+        return route.takeIf { it.size >= 2 }?.let { ExerciseRoute(it) }
+    }
+
+    private fun buildVirtualRouteLocation(
+        timeMs: Long,
+        anchor: RouteAnchor,
+        loopDistanceMeters: Double,
+        relativeAltitudeMeters: Double,
+        loopCircumferenceMeters: Double
+    ): ExerciseRoute.Location {
+        val angleRad = (loopDistanceMeters / loopCircumferenceMeters) * 2.0 * PI
+        val northMeters = sin(angleRad) * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
+        val eastMeters = cos(angleRad) * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
+
+        val latitude = (anchor.latitude + northMeters / METERS_PER_DEGREE_LAT).coerceIn(-89.999999, 89.999999)
+        val metersPerDegreeLon = (METERS_PER_DEGREE_LAT * cos(Math.toRadians(anchor.latitude))).coerceAtLeast(1.0)
+        val longitude = normalizeLongitude(anchor.longitude + eastMeters / metersPerDegreeLon)
+        val altitudeMeters = (anchor.altitudeMeters + relativeAltitudeMeters).coerceIn(-500.0, 9000.0)
+
+        return ExerciseRoute.Location(
+            time = Instant.ofEpochMilli(timeMs),
+            latitude = latitude,
+            longitude = longitude,
+            horizontalAccuracy = Length.meters(VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M),
+            verticalAccuracy = Length.meters(VIRTUAL_ROUTE_VERTICAL_ACCURACY_M),
+            altitude = Length.meters(altitudeMeters)
+        )
+    }
+
+    private fun normalizeLongitude(longitude: Double): Double {
+        var value = longitude
+        while (value > 180.0) value -= 360.0
+        while (value < -180.0) value += 360.0
+        return value
+    }
+
+    private fun resolveRouteAnchor(context: Context): RouteAnchor {
+        readLastKnownRouteAnchor(context)?.let {
+            saveRouteAnchor(context, it)
+            return it
+        }
+
+        readSavedRouteAnchor(context)?.let { return it }
+        return RouteAnchor(
+            latitude = VIRTUAL_ROUTE_FALLBACK_LAT,
+            longitude = VIRTUAL_ROUTE_FALLBACK_LON,
+            altitudeMeters = VIRTUAL_ROUTE_FALLBACK_ALT_M
+        )
+    }
+
+    private fun readLastKnownRouteAnchor(context: Context): RouteAnchor? {
+        val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) return null
+
+        val manager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+
+        val latest = providers
+            .asSequence()
+            .mapNotNull { provider ->
+                runCatching { manager.getLastKnownLocation(provider) }
+                    .getOrNull()
+            }
+            .maxByOrNull { it.time }
+            ?: return null
+
+        return RouteAnchor(
+            latitude = latest.latitude,
+            longitude = latest.longitude,
+            altitudeMeters = if (latest.hasAltitude()) latest.altitude else VIRTUAL_ROUTE_FALLBACK_ALT_M
+        )
+    }
+
+    private fun readSavedRouteAnchor(context: Context): RouteAnchor? {
+        val prefs = context.getSharedPreferences("runn", Context.MODE_PRIVATE)
+        val lat = prefs.getString(PREF_ROUTE_ANCHOR_LAT, null)?.toDoubleOrNull() ?: return null
+        val lon = prefs.getString(PREF_ROUTE_ANCHOR_LON, null)?.toDoubleOrNull() ?: return null
+        val alt = prefs.getString(PREF_ROUTE_ANCHOR_ALT, null)?.toDoubleOrNull() ?: VIRTUAL_ROUTE_FALLBACK_ALT_M
+
+        if (lat !in -89.999999..89.999999) return null
+        if (lon !in -180.0..180.0) return null
+        return RouteAnchor(latitude = lat, longitude = lon, altitudeMeters = alt)
+    }
+
+    private fun saveRouteAnchor(context: Context, anchor: RouteAnchor) {
+        context
+            .getSharedPreferences("runn", Context.MODE_PRIVATE)
+            .edit()
+            .putString(PREF_ROUTE_ANCHOR_LAT, anchor.latitude.toString())
+            .putString(PREF_ROUTE_ANCHOR_LON, anchor.longitude.toString())
+            .putString(PREF_ROUTE_ANCHOR_ALT, anchor.altitudeMeters.toString())
+            .apply()
     }
 
     private fun buildSpeedRecords(

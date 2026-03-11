@@ -8,6 +8,7 @@ This document tracks which Health Connect data types are currently written by `r
 |---|---|---|---|
 | `ExerciseSessionRecord` | Written | workout start/end, inferred exercise type | Uses `RUNNING_TREADMILL` or `WALKING`. |
 | `ExerciseSegment` | Written | inferred exercise type | Single segment covering full session. |
+| `ExerciseRoute` | Written when route permission is granted | virtual loop route near cached/current anchor point + computed altitude profile | Synthetic route is used for treadmill interoperability with consumer elevation charts. |
 | `SpeedRecord` | Written | speed samples | Chunked series write for long workouts. |
 | `DistanceRecord` | Written | distance total | Sensor distance delta or speed integration fallback. |
 | `StepsRecord` | Written | cadence-integrated steps, or distance fallback | Fallback uses personal step length when available. |
@@ -33,7 +34,6 @@ This document tracks which Health Connect data types are currently written by `r
 
 | Type | Reason |
 |---|---|
-| `ExerciseRoute` | Treadmill scenario has no real GPS route stream; synthetic route is intentionally not generated. |
 | `Vo2MaxRecord` | No validated input/model in current app scope. |
 | `PowerRecord` | No trustworthy power source/model for current treadmill pipeline. |
 
@@ -41,7 +41,8 @@ This document tracks which Health Connect data types are currently written by `r
 
 - Exercise type (`WALKING` vs `RUNNING_TREADMILL`) does not provide altitude samples by itself.
 - Elevation profile charts in consumer apps generally rely on route points with altitude (`ExerciseRoute.Location.altitude`).
-- For treadmill sessions without route points, summary metrics can still sync (`ElevationGainedRecord`, `FloorsClimbedRecord`), while chart rendering remains app-dependent.
+- The app now writes a virtual treadmill route (when `WRITE_EXERCISE_ROUTE` permission is granted) so consumer apps can render an elevation profile even without physical movement.
+- If route permission is missing, summary metrics still sync (`ElevationGainedRecord`, `FloorsClimbedRecord`), while chart rendering remains app-dependent.
 
 ## References
 

@@ -86,6 +86,11 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_SEX = "sex"
         private const val PREF_BMR_WATTS = "bmr_watts"
         private const val PREF_STEP_LENGTH_M = "step_length_m"
+        private const val PREF_ROUTE_ANCHOR_PERMISSION_ASKED = "route_anchor_permission_asked"
+        private const val PREF_LAST_REQUIREMENTS_AUDIT_MS = "last_requirements_audit_ms"
+        private const val PREF_LAST_REQUIREMENTS_AUDIT_VERSION_CODE = "last_requirements_audit_version_code"
+        private const val HC_WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
+        private const val REQUIREMENTS_AUDIT_INTERVAL_MS = 6L * 60L * 60L * 1000L
         private const val STEP_LENGTH_LOOKBACK_DAYS = 14L
         private const val STEP_LENGTH_MIN_STEPS = 2_000.0
         private const val STEP_LENGTH_MIN_DISTANCE_M = 1_000.0
@@ -108,7 +113,9 @@ class MainActivity : AppCompatActivity() {
     private var afterBluetoothEnabled: (() -> Unit)? = null
     private var afterBlePermissionsGranted: (() -> Unit)? = null
     private var afterHealthPermissionsGranted: (() -> Unit)? = null
+    private var afterHealthPermissionsDenied: (() -> Unit)? = null
     private var afterNotificationPermissionResult: ((Boolean) -> Unit)? = null
+    private var afterRouteAnchorPermissionResult: (() -> Unit)? = null
 
     private val hcPerms = setOf(
         HealthPermission.getReadPermission(WeightRecord::class),
@@ -126,6 +133,7 @@ class MainActivity : AppCompatActivity() {
         HealthPermission.getWritePermission(StepsCadenceRecord::class),
         HealthPermission.getWritePermission(ElevationGainedRecord::class),
         HealthPermission.getWritePermission(FloorsClimbedRecord::class),
+        HC_WRITE_EXERCISE_ROUTE_PERMISSION,
         HealthPermission.getWritePermission(androidx.health.connect.client.records.HeartRateRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class),
@@ -205,16 +213,31 @@ class MainActivity : AppCompatActivity() {
         next?.invoke(granted)
     }
 
+    private val routeAnchorPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (!granted) {
+            log("Location permission denied; virtual route anchor uses cached/default point")
+        }
+        val next = afterRouteAnchorPermissionResult
+        afterRouteAnchorPermissionResult = null
+        next?.invoke()
+    }
+
     private val hcPermLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
         if (granted.containsAll(hcPerms)) {
             val next = afterHealthPermissionsGranted
             afterHealthPermissionsGranted = null
+            afterHealthPermissionsDenied = null
             syncProfileFromHealthConnect { next?.invoke() }
         } else {
+            val denied = afterHealthPermissionsDenied
             afterHealthPermissionsGranted = null
+            afterHealthPermissionsDenied = null
             statusText.text = "❌ Health Connect permissions required"
+            denied?.invoke()
         }
     }
 
@@ -311,6 +334,7 @@ class MainActivity : AppCompatActivity() {
         refreshLogFromPrefs()
         fillProfileInputsFromPrefs()
         refreshMetricsFromPrefs()
+        maybeRunRequirementsAudit()
     }
 
     override fun onStop() {
@@ -339,13 +363,18 @@ class MainActivity : AppCompatActivity() {
 
         requestBlePermissions {
             ensureBluetoothEnabled {
-                requestHealthPerms { startBleScan() }
+                requestHealthPerms {
+                    requestRouteAnchorPermissionIfNeeded {
+                        startBleScan()
+                    }
+                }
             }
         }
     }
 
-    private fun requestHealthPerms(onGranted: (() -> Unit)? = null) {
+    private fun requestHealthPerms(onGranted: (() -> Unit)? = null, onDenied: (() -> Unit)? = null) {
         afterHealthPermissionsGranted = onGranted
+        afterHealthPermissionsDenied = onDenied
         hcPermLauncher.launch(hcPerms)
     }
 
@@ -363,18 +392,109 @@ class MainActivity : AppCompatActivity() {
         requestBlePermissions {
             ensureBluetoothEnabled {
                 requestHealthPerms {
-                    requestNotificationPermission { notificationGranted ->
-                        requestBatteryExemption()
-                        if (notificationGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                            prefs().edit().putBoolean(PREF_INITIAL_PERMISSIONS_DONE, true).apply()
-                            log("Initial permissions completed")
-                        } else {
-                            log("Initial permissions incomplete: notification denied")
+                    requestRouteAnchorPermissionIfNeeded {
+                        requestNotificationPermission { notificationGranted ->
+                            requestBatteryExemption()
+                            if (notificationGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                prefs().edit().putBoolean(PREF_INITIAL_PERMISSIONS_DONE, true).apply()
+                                log("Initial permissions completed")
+                            } else {
+                                log("Initial permissions incomplete: notification denied")
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    private fun maybeRunRequirementsAudit() {
+        if (!prefs().getBoolean(PREF_INITIAL_PERMISSIONS_DONE, false)) return
+
+        val currentVersionCode = currentAppVersionCode()
+        val lastAuditVersionCode = prefs().getLong(PREF_LAST_REQUIREMENTS_AUDIT_VERSION_CODE, -1L)
+        val lastAuditMs = prefs().getLong(PREF_LAST_REQUIREMENTS_AUDIT_MS, 0L)
+        val now = System.currentTimeMillis()
+
+        val bluetoothOff = !isBluetoothEnabled()
+        val missingBlePermissions = !hasAllPermissions(requiredBlePermissions())
+        val missingNotificationPermission =
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+
+        val immediateFixNeeded = bluetoothOff || missingBlePermissions || missingNotificationPermission
+        val updateDetected = currentVersionCode > 0L && currentVersionCode != lastAuditVersionCode
+        val periodicDue = now - lastAuditMs >= REQUIREMENTS_AUDIT_INTERVAL_MS
+        if (!immediateFixNeeded && !updateDetected && !periodicDue) return
+
+        val reason = when {
+            bluetoothOff -> "bluetooth-off"
+            missingBlePermissions -> "ble-permissions"
+            missingNotificationPermission -> "notifications"
+            updateDetected -> "update"
+            else -> "periodic"
+        }
+        runRequirementsAudit(reason) {
+            prefs().edit()
+                .putLong(PREF_LAST_REQUIREMENTS_AUDIT_MS, System.currentTimeMillis())
+                .putLong(PREF_LAST_REQUIREMENTS_AUDIT_VERSION_CODE, currentVersionCode)
+                .apply()
+        }
+    }
+
+    private fun runRequirementsAudit(reason: String, onDone: () -> Unit) {
+        log("Running requirements audit ($reason)")
+        requestBlePermissions {
+            ensureBluetoothEnabled {
+                val sdkStatus = HealthConnectClient.getSdkStatus(this)
+                if (sdkStatus != HealthConnectClient.SDK_AVAILABLE) {
+                    log("Requirements audit skipped HC permissions: status=$sdkStatus")
+                    requestNotificationPermission { _ -> onDone() }
+                    return@ensureBluetoothEnabled
+                }
+
+                requestHealthPerms(
+                    onGranted = {
+                        requestRouteAnchorPermissionIfNeeded(forceRequest = true) {
+                            requestNotificationPermission { _ -> onDone() }
+                        }
+                    },
+                    onDenied = { onDone() }
+                )
+            }
+        }
+    }
+
+    private fun requestRouteAnchorPermissionIfNeeded(forceRequest: Boolean = false, onDone: () -> Unit) {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (hasFine || hasCoarse) {
+            onDone()
+            return
+        }
+
+        if (!forceRequest && prefs().getBoolean(PREF_ROUTE_ANCHOR_PERMISSION_ASKED, false)) {
+            onDone()
+            return
+        }
+
+        if (!forceRequest) {
+            prefs().edit().putBoolean(PREF_ROUTE_ANCHOR_PERMISSION_ASKED, true).apply()
+        }
+        afterRouteAnchorPermissionResult = onDone
+        routeAnchorPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
+    }
+
+    private fun currentAppVersionCode(): Long {
+        return runCatching {
+            val packageInfo = packageManager.getPackageInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageInfo.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                packageInfo.versionCode.toLong()
+            }
+        }.getOrDefault(-1L)
     }
 
     @SuppressLint("MissingPermission")

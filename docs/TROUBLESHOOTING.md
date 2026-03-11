@@ -46,6 +46,19 @@
 - Verify required `READ_*` permissions are granted for profile/backfill paths (for example distance+steps for personal step-length inference).
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
 
+## Elevation graph missing or map looks wrong
+
+- For treadmill sessions, elevation profile in consumer apps depends on `ExerciseRoute` availability, not only `ElevationGainedRecord`.
+- Grant Health Connect route permission (`WRITE_EXERCISE_ROUTE`) and rerun one workout.
+- Optional location permission (`ACCESS_COARSE_LOCATION`) helps anchor virtual route near your training place.
+- If location permission is denied, the app still exports a virtual route using cached/default anchor, so charts can render but map placement may be generic.
+
+## App asks for permissions or Bluetooth again
+
+- The app re-checks required permissions automatically after updates and periodically during normal use.
+- If any required permission is missing, it is requested again.
+- If Bluetooth is off, Android Bluetooth enable dialog is requested automatically.
+
 ## GitHub Actions build failed
 
 - Check workflow logs in Actions tab.

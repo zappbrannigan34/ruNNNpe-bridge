@@ -4,22 +4,61 @@ on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      tag_name:
-        description: "Tag for release (example: v0.1.0)"
-        required: true
 
 permissions:
   contents: write
 
 jobs:
   publish:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_PLATFORM: "android-35"
+      ANDROID_BUILD_TOOLS: "34.0.0"
 
     steps:
-      - name: Checkout
+      - name: Checkout tagged commit
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag format
+        run: |
+          if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag must match v<major>.<minor>.<patch>"
+            exit 1
+          fi
+
+      - name: Validate version files match tag
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import re
+          import sys
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = tag[1:]
+
+          gradle = pathlib.Path("app/build.gradle.kts").read_text(encoding="utf-8")
+          fdroid = pathlib.Path(".fdroid.yml").read_text(encoding="utf-8")
+
+          gradle_match = re.search(r'^\s*versionName\s*=\s*"([^\"]+)"\s*$', gradle, flags=re.MULTILINE)
+          fdroid_match = re.search(r'^CurrentVersion:\s+(.+)$', fdroid, flags=re.MULTILINE)
+
+          if not gradle_match or not fdroid_match:
+              print("Unable to parse version fields", file=sys.stderr)
+              raise SystemExit(1)
+
+          gradle_version = gradle_match.group(1).strip()
+          fdroid_version = fdroid_match.group(1).strip()
+
+          if gradle_version != expected or fdroid_version != expected:
+              print(
+                  f"Version mismatch: tag={expected}, gradle={gradle_version}, fdroid={fdroid_version}",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          PY
 
       - name: Setup Java 17
         uses: actions/setup-java@v4
@@ -27,65 +66,65 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install pinned Android SDK packages
+        run: |
+          sdkmanager --install \
+            "platform-tools" \
+            "platforms;${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
-      - name: Resolve release tag
-        id: tag
-        run: |
-          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
-            $tag = "${{ inputs.tag_name }}"
-          } else {
-            $tag = "${{ github.ref_name }}"
-          }
-          "value=$tag" >> $env:GITHUB_OUTPUT
-          "version_name=$($tag.TrimStart('v'))" >> $env:GITHUB_OUTPUT
-
       - name: Prepare upload keystore
-        shell: pwsh
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
         run: |
-          if ([string]::IsNullOrWhiteSpace("${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}")) {
-            Write-Host "ANDROID_UPLOAD_KEYSTORE_BASE64 is not set. Falling back to debug signing for release build validation."
-            exit 0
-          }
-          New-Item -ItemType Directory -Path keystore -Force | Out-Null
-          [System.IO.File]::WriteAllBytes(
-            "keystore/upload.jks",
-            [System.Convert]::FromBase64String("${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}")
-          )
+          if [ -z "${ANDROID_UPLOAD_KEYSTORE_BASE64}" ]; then
+            echo "ANDROID_UPLOAD_KEYSTORE_BASE64 secret is required for release publish"
+            exit 1
+          fi
+          mkdir -p keystore
+          echo "${ANDROID_UPLOAD_KEYSTORE_BASE64}" | base64 --decode > keystore/upload.jks
 
       - name: Build release APK and AAB
         env:
-          ANDROID_VERSION_CODE: ${{ github.run_number }}
-          ANDROID_VERSION_NAME: ${{ steps.tag.outputs.version_name }}
-          ANDROID_UPLOAD_KEYSTORE_PATH: ${{ github.workspace }}\keystore\upload.jks
+          ANDROID_UPLOAD_KEYSTORE_PATH: ${{ github.workspace }}/keystore/upload.jks
           ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
           ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
           ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
-        run: .\gradlew.bat clean assembleRelease bundleRelease
+        run: |
+          if [ -z "${ANDROID_UPLOAD_KEYSTORE_PASSWORD}" ] || [ -z "${ANDROID_UPLOAD_KEY_ALIAS}" ] || [ -z "${ANDROID_UPLOAD_KEY_PASSWORD}" ]; then
+            echo "Release signing secrets are required"
+            exit 1
+          fi
+          ./gradlew --no-daemon clean assembleRelease bundleRelease
 
       - name: Prepare release artifact filenames
-        shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path dist -Force | Out-Null
-          $tag = "${{ steps.tag.outputs.value }}"
-          $releaseApkSigned = "app/build/outputs/apk/release/app-release.apk"
-          $releaseApkUnsigned = "app/build/outputs/apk/release/app-release-unsigned.apk"
-          if (Test-Path $releaseApkSigned) {
-            $releaseApk = $releaseApkSigned
-          } elseif (Test-Path $releaseApkUnsigned) {
-            $releaseApk = $releaseApkUnsigned
-          } else {
-            throw "Release APK not found at signed or unsigned expected paths."
-          }
-          Copy-Item $releaseApk "dist/ruNNNpe bridge-$tag.apk" -Force
-          Copy-Item "app/build/outputs/bundle/release/app-release.aab" "dist/ruNNNpe bridge-$tag.aab" -Force
+          mkdir -p dist
+          tag="${GITHUB_REF_NAME}"
+          release_apk_signed="app/build/outputs/apk/release/app-release.apk"
+          release_apk_unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
+          if [ -f "${release_apk_signed}" ]; then
+            release_apk="${release_apk_signed}"
+          elif [ -f "${release_apk_unsigned}" ]; then
+            release_apk="${release_apk_unsigned}"
+          else
+            echo "Release APK not found at signed or unsigned expected paths."
+            exit 1
+          fi
+          cp "${release_apk}" "dist/ruNNNpe bridge-${tag}.apk"
+          cp "app/build/outputs/bundle/release/app-release.aab" "dist/ruNNNpe bridge-${tag}.aab"
 
       - name: Publish GitHub Release with artifacts
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.value }}
-          name: ${{ steps.tag.outputs.value }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
           generate_release_notes: true
           files: |
             dist/*.apk

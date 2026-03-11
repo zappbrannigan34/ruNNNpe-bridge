@@ -54,11 +54,13 @@ Official references:
 
 - `app/build.gradle.kts`
   - target SDK and release signing env hooks
-  - application ID and version env overrides
+  - pinned `buildToolsVersion` for reproducible release signing
 - `.github/workflows/publish.yml`
-  - builds release APK + AAB and publishes both assets
+  - tag-only release publishing with pinned JDK/SDK build-tools and version/tag consistency checks
 - `.github/workflows/android-build.yml`
-  - validates debug and release outputs on CI
+  - validates debug and release outputs on pinned Linux/JDK/SDK toolchain
+- `.github/workflows/release-prep.yml`
+  - one-click release prep from GitHub Actions (bumps `versionName`/`versionCode`, updates `.fdroid.yml`, commits, and tags)
 - `.fdroid.yml`
   - upstream F-Droid metadata baseline for submission
 - `PRIVACY_POLICY.md`
@@ -73,4 +75,20 @@ Official references:
 - `ANDROID_UPLOAD_KEY_ALIAS`
 - `ANDROID_UPLOAD_KEY_PASSWORD`
 
-If these secrets are not set, release builds fall back to debug signing and should not be uploaded to Play production.
+If these secrets are not set, release publishing fails.
+
+## Automated release prep flow
+
+1. Open GitHub Actions -> `Release Prep` workflow.
+2. Run workflow on `master` and choose only one input: `bump` (`patch`, `minor`, or `major`).
+3. Workflow automatically calculates the next `versionName` and `versionCode`, updates `app/build.gradle.kts` and `.fdroid.yml`, commits to `master`, and pushes the new tag.
+4. Tag push automatically triggers `Publish Release` workflow to build and upload release assets.
+
+## Reproducible build requirements (F-Droid)
+
+1. Build and publish only from release tags (`vX.Y.Z`), never from untagged commits.
+2. Ensure tag version matches both `app/build.gradle.kts` (`versionName`) and `.fdroid.yml` (`CurrentVersion`).
+3. Build with Gradle CLI (`./gradlew`), not Android Studio.
+4. Pin toolchain in CI (Temurin Java 17, Android platform 35, build-tools 34.0.0).
+5. Build release artifacts from a clean checkout and keep release signing keys stable.
+6. For reproducibility investigations, diff upstream APK against rebuild using `diffoscope` and follow F-Droid guidance: https://f-droid.org/docs/Reproducible_Builds/

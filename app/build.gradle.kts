@@ -17,6 +17,7 @@ val hasReleaseSigning = listOf(
 android {
     namespace = "com.example.runnbridge"
     compileSdk = 35
+    buildToolsVersion = "34.0.0"
 
     defaultConfig {
         applicationId = "com.zappbrannigan34.runnnpebridge"

@@ -86,9 +86,10 @@ gradlew.bat assembleDebug
 
 After install:
 
-1. On first launch, app requests BLE, Health Connect, notifications, and battery optimization exemption.
+1. On first launch, app requests BLE, Health Connect (including route write), notifications, optional location anchor permission, and battery optimization exemption.
 2. Tap `Find RUNN & Start`.
 3. Keep app unrestricted in battery settings for stable background work.
+4. After app updates, required permissions and Bluetooth state are re-checked automatically; missing permissions are requested again.
 
 ## Publication policy docs
 
