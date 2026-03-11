@@ -65,4 +65,4 @@ If these secrets are absent, publish workflow fails.
 - For testing, install `ruNNNpe bridge-release.apk`; `ruNNNpe bridge-debug.apk` is for debug/diagnostics.
 - If pre-release publish ever reports unsigned release APK, workflow fails by design and pre-release is not updated.
 - Pre-release notes keep cumulative change history (new commit entries are prepended, old entries are preserved).
-- Changelog range is calculated from the last published pre-release commit, so failed intermediate runs do not drop commit history.
+- Changelog range is calculated from the last published pre-release commit, then falls back to latest stable release tag commit, then push `before` SHA, then repository root when needed.

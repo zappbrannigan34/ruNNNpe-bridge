@@ -117,21 +117,36 @@ jobs:
 
           range_start=""
           if gh release view pre-release >/dev/null 2>&1; then
-            range_start=$(gh release view pre-release --json targetCommitish --jq .targetCommitish)
+            pre_release_target=$(gh release view pre-release --json targetCommitish --jq .targetCommitish)
+            if [ -n "${pre_release_target}" ] && git cat-file -e "${pre_release_target}^{commit}" 2>/dev/null; then
+              range_start="${pre_release_target}"
+            fi
           fi
 
           if [ -z "${range_start}" ]; then
+            stable_tag=$(gh release list --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')
+            if [ -n "${stable_tag}" ] && git rev-parse -q --verify "refs/tags/${stable_tag}^{commit}" >/dev/null 2>&1; then
+              range_start=$(git rev-list -n 1 "${stable_tag}")
+            fi
+          fi
+
+          if [ -z "${range_start}" ] && [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
             range_start="${BEFORE_SHA}"
           fi
 
-          if [ -n "${range_start}" ] && [ "${range_start}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${range_start}^{commit}" 2>/dev/null; then
+          if [ -n "${range_start}" ] && git cat-file -e "${range_start}^{commit}" 2>/dev/null; then
             if git log --oneline "${range_start}..${GITHUB_SHA}" | grep -q .; then
               git log --pretty=format:'- `%h` %s' "${range_start}..${GITHUB_SHA}" >> "${notes_file}"
             else
               echo "- No commit delta detected in this push." >> "${notes_file}"
             fi
           else
-            git log -10 --pretty=format:'- `%h` %s' >> "${notes_file}"
+            root_commit=$(git rev-list --max-parents=0 HEAD | tail -n 1)
+            if [ -n "${root_commit}" ] && [ "${root_commit}" != "${GITHUB_SHA}" ]; then
+              git log --pretty=format:'- `%h` %s' "${root_commit}..${GITHUB_SHA}" >> "${notes_file}"
+            else
+              git log -10 --pretty=format:'- `%h` %s' >> "${notes_file}"
+            fi
           fi
 
       - name: Publish rolling pre-release

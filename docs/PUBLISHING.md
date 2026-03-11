@@ -91,6 +91,7 @@ If these secrets are not set, release publishing fails.
 - Final release publication remains tag-gated (`vX.Y.Z`) via `Publish Release` workflow.
 - F-Droid update checks explicitly ignore pre-release tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
 - Both pre-release and final release notes include: artifact purpose (`which file to install`) and changelog history.
+- Pre-release changelog start point prefers previous pre-release target commit, then stable release tag commit, then push `before` SHA, with repo-root fallback.
 
 ## Reproducible build requirements (F-Droid)
 
