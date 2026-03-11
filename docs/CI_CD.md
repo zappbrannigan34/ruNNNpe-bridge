@@ -13,10 +13,12 @@ Triggers:
 Actions:
 
 1. Checkout code.
-2. Setup JDK 17.
-3. Build debug and release outputs (`assembleDebug`, `assembleRelease`, `bundleRelease`).
-4. Normalize artifact names (`.apk` and `.aab`) with signed/unsigned release APK fallback handling.
-5. Upload build artifacts.
+2. Ensure Gradle wrapper is executable on Linux runners.
+3. Setup pinned toolchain (JDK 17 + Android platform/build-tools).
+4. Build debug and release outputs (`assembleDebug`, `assembleRelease`, `bundleRelease`).
+5. Normalize artifact names (`.apk` and `.aab`) with signed/unsigned release APK fallback handling.
+6. Upload build artifacts.
+7. On push to `master`/`main`, publish rolling GitHub pre-release `pre-release` with latest artifacts.
 
 ## Publish workflow
 
@@ -25,15 +27,14 @@ Workflow: `.github/workflows/publish.yml`
 Triggers:
 
 - tag push `v*`
-- `workflow_dispatch` with `tag_name` input
 
 Actions:
 
-1. Resolve release tag and semantic version name.
-2. Decode upload keystore from repository secrets (if configured).
+1. Validate release tag format and match against version files.
+2. Decode upload keystore from repository secrets.
 3. Build release APK and AAB (`assembleRelease`, `bundleRelease`).
 4. Rename outputs to `ruNNNpe bridge-<tag>.*`.
-5. Create/update GitHub Release.
+5. Publish final GitHub Release for that tag.
 6. Attach APK and AAB to release assets.
 
 ## Required publish secrets
@@ -43,11 +44,18 @@ Actions:
 - `ANDROID_UPLOAD_KEY_ALIAS`
 - `ANDROID_UPLOAD_KEY_PASSWORD`
 
-If these secrets are absent, `assembleRelease` still completes and produces `app-release-unsigned.apk` for validation only. Do not upload unsigned artifacts to Play production.
+If these secrets are absent, publish workflow fails.
 
 ## How to publish manually
 
-1. Open Actions -> `Publish Release`.
-2. Run workflow.
-3. Set `tag_name` like `v0.1.0`.
-4. Check Release page for uploaded APK and AAB.
+1. Open Actions -> `Release Prep`.
+2. Run on `master` with `bump` (`patch`/`minor`/`major`).
+3. Wait for pushed tag (`vX.Y.Z`) and `Publish Release` workflow completion.
+4. Check Releases page for final uploaded APK and AAB.
+
+## Pre-release behavior
+
+- Every push to `master`/`main` updates rolling GitHub pre-release `pre-release`.
+- URL: `https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/tag/pre-release`
+- Final releases are still created only from `v*` tags.
+- F-Droid update checks ignore this tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.

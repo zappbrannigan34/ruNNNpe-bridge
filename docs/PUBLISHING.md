@@ -59,6 +59,7 @@ Official references:
   - tag-only release publishing with pinned JDK/SDK build-tools and version/tag consistency checks
 - `.github/workflows/android-build.yml`
   - validates debug and release outputs on pinned Linux/JDK/SDK toolchain
+  - publishes rolling GitHub pre-release `pre-release` on every push to `master`/`main`
 - `.github/workflows/release-prep.yml`
   - one-click release prep from GitHub Actions (bumps `versionName`/`versionCode`, updates `.fdroid.yml`, commits, and tags)
 - `.fdroid.yml`
@@ -83,6 +84,12 @@ If these secrets are not set, release publishing fails.
 2. Run workflow on `master` and choose only one input: `bump` (`patch`, `minor`, or `major`).
 3. Workflow automatically calculates the next `versionName` and `versionCode`, updates `app/build.gradle.kts` and `.fdroid.yml`, commits to `master`, and pushes the new tag.
 4. Tag push automatically triggers `Publish Release` workflow to build and upload release assets.
+
+## Pre-release policy
+
+- Every push to `master`/`main` updates rolling GitHub pre-release tag `pre-release` with latest APK/AAB artifacts.
+- Final release publication remains tag-gated (`vX.Y.Z`) via `Publish Release` workflow.
+- F-Droid update checks explicitly ignore pre-release tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
 
 ## Reproducible build requirements (F-Droid)
 

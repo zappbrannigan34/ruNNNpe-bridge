@@ -28,5 +28,6 @@ Builds:
 
 AutoUpdateMode: Version
 UpdateCheckMode: Tags
+UpdateCheckIgnore: "(?i)pre-release"
 CurrentVersion: 0.1.6
 CurrentVersionCode: 8

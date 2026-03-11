@@ -70,6 +70,7 @@ If you are searching for terms like `NPE RUNN Health Connect`, `Android treadmil
 ## Download
 
 - Latest release assets: [Releases](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/latest)
+- Rolling pre-release assets: [pre-release](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/tag/pre-release)
 - Expected release assets: `ruNNNpe bridge-<tag>.apk` and `ruNNNpe bridge-<tag>.aab`
 
 ## Quick start
