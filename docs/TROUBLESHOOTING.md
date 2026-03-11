@@ -65,3 +65,9 @@
 - Check workflow logs in Actions tab.
 - Common causes: Gradle cache corruption, transient dependency fetch errors.
 - Re-run failed workflow once before deeper debugging.
+
+## "Package invalid" when installing pre-release APK
+
+- Install `ruNNNpe bridge-release.apk` from pre-release for normal testing.
+- Do not install `.aab` on device (`.aab` is Play upload format).
+- If installation still fails after updates, uninstall older build with conflicting signature and install again.

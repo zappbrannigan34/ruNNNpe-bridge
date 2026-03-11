@@ -73,6 +73,7 @@ If you are searching for terms like `NPE RUNN Health Connect`, `Android treadmil
 - Rolling pre-release assets: [pre-release](https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/tag/pre-release)
 - Expected release assets: `ruNNNpe bridge-<tag>.apk` and `ruNNNpe bridge-<tag>.aab`
 - For device testing/install use APK (`*.apk`), not AAB (`*.aab` is for Play Console upload).
+- Pre-release push builds require signing secrets; unsigned release APK is blocked.
 
 ## Quick start
 

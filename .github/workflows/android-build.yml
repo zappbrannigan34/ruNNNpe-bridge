@@ -44,6 +44,28 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v3
 
+      - name: Prepare pre-release signing keystore
+        if: github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'main')
+        env:
+          ANDROID_UPLOAD_KEYSTORE_BASE64: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_BASE64 }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_UPLOAD_KEY_ALIAS: ${{ secrets.ANDROID_UPLOAD_KEY_ALIAS }}
+          ANDROID_UPLOAD_KEY_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEY_PASSWORD }}
+        run: |
+          if [ -z "${ANDROID_UPLOAD_KEYSTORE_BASE64}" ] || [ -z "${ANDROID_UPLOAD_KEYSTORE_PASSWORD}" ] || [ -z "${ANDROID_UPLOAD_KEY_ALIAS}" ] || [ -z "${ANDROID_UPLOAD_KEY_PASSWORD}" ]; then
+            echo "Release signing secrets are required for installable pre-release APK"
+            exit 1
+          fi
+
+          mkdir -p keystore
+          echo "${ANDROID_UPLOAD_KEYSTORE_BASE64}" | base64 --decode > keystore/upload.jks
+          {
+            echo "ANDROID_UPLOAD_KEYSTORE_PATH=${GITHUB_WORKSPACE}/keystore/upload.jks"
+            echo "ANDROID_UPLOAD_KEYSTORE_PASSWORD=${ANDROID_UPLOAD_KEYSTORE_PASSWORD}"
+            echo "ANDROID_UPLOAD_KEY_ALIAS=${ANDROID_UPLOAD_KEY_ALIAS}"
+            echo "ANDROID_UPLOAD_KEY_PASSWORD=${ANDROID_UPLOAD_KEY_PASSWORD}"
+          } >> "${GITHUB_ENV}"
+
       - name: Build debug + release artifacts
         run: ./gradlew --no-daemon assembleDebug assembleRelease bundleRelease
 
@@ -53,8 +75,14 @@ jobs:
           release_apk_signed="app/build/outputs/apk/release/app-release.apk"
           release_apk_unsigned="app/build/outputs/apk/release/app-release-unsigned.apk"
           if [ -f "${release_apk_signed}" ]; then
+            echo "Using signed release APK"
             release_apk="${release_apk_signed}"
           elif [ -f "${release_apk_unsigned}" ]; then
+            if [ "${GITHUB_EVENT_NAME}" = "push" ] && { [ "${GITHUB_REF_NAME}" = "master" ] || [ "${GITHUB_REF_NAME}" = "main" ]; }; then
+              echo "Unsigned release APK detected on push build; pre-release requires signed release APK."
+              exit 1
+            fi
+            echo "Using unsigned release APK"
             release_apk="${release_apk_unsigned}"
           else
             echo "Release APK not found at signed or unsigned expected paths."

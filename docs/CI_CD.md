@@ -20,6 +20,7 @@ Actions:
 6. Upload build artifacts.
 7. On push to `master`/`main`, publish rolling GitHub pre-release `pre-release` with latest artifacts.
 8. Pre-release notes include artifact purpose (`which file to install`) and commit history for that push range.
+9. Push pre-release build requires release signing secrets so `ruNNNpe bridge-release.apk` is installable (not unsigned).
 
 ## Publish workflow
 
@@ -62,3 +63,4 @@ If these secrets are absent, publish workflow fails.
 - Final releases are still created only from `v*` tags.
 - F-Droid update checks ignore this tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
 - For testing, install `ruNNNpe bridge-release.apk`; `ruNNNpe bridge-debug.apk` is for debug/diagnostics.
+- If pre-release publish ever reports unsigned release APK, workflow fails by design and pre-release is not updated.
