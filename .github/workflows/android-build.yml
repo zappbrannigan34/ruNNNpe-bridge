@@ -71,14 +71,39 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+      - name: Build pre-release notes
+        if: github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'main')
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          notes_file="dist/pre-release-notes.md"
+          {
+            echo "## What to install"
+            echo "- \\`ruNNNpe bridge-release.apk\\` - install this for normal testing (closest to production behavior)."
+            echo "- \\`ruNNNpe bridge-debug.apk\\` - developer/debug build (use only if you need debug-specific diagnostics)."
+            echo "- \\`ruNNNpe bridge-release.aab\\` - Play Console upload artifact, not for direct phone install."
+            echo ""
+            echo "## Change history"
+          } > "${notes_file}"
+
+          if [ -n "${BEFORE_SHA}" ] && [ "${BEFORE_SHA}" != "0000000000000000000000000000000000000000" ] && git cat-file -e "${BEFORE_SHA}^{commit}" 2>/dev/null; then
+            if git log --oneline "${BEFORE_SHA}..${GITHUB_SHA}" | grep -q .; then
+              git log --pretty=format:'- `%h` %s' "${BEFORE_SHA}..${GITHUB_SHA}" >> "${notes_file}"
+            else
+              echo "- No commit delta detected in this push." >> "${notes_file}"
+            fi
+          else
+            git log -10 --pretty=format:'- `%h` %s' >> "${notes_file}"
+          fi
+
       - name: Publish rolling pre-release
         if: github.event_name == 'push' && (github.ref_name == 'master' || github.ref_name == 'main')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete pre-release --yes --cleanup-tag || true
-          gh release create pre-release dist/* \
+          gh release create pre-release dist/*.apk dist/*.aab \
             --target "${GITHUB_SHA}" \
             --title "pre-release" \
-            --notes "Automated pre-release build from ${GITHUB_REF_NAME} at ${GITHUB_SHA}" \
+            --notes-file "dist/pre-release-notes.md" \
             --prerelease

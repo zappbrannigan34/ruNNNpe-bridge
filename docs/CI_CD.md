@@ -19,6 +19,7 @@ Actions:
 5. Normalize artifact names (`.apk` and `.aab`) with signed/unsigned release APK fallback handling.
 6. Upload build artifacts.
 7. On push to `master`/`main`, publish rolling GitHub pre-release `pre-release` with latest artifacts.
+8. Pre-release notes include artifact purpose (`which file to install`) and commit history for that push range.
 
 ## Publish workflow
 
@@ -36,6 +37,7 @@ Actions:
 4. Rename outputs to `ruNNNpe bridge-<tag>.*`.
 5. Publish final GitHub Release for that tag.
 6. Attach APK and AAB to release assets.
+7. Release notes include artifact purpose and changelog from previous tag.
 
 ## Required publish secrets
 
@@ -59,3 +61,4 @@ If these secrets are absent, publish workflow fails.
 - URL: `https://github.com/zappbrannigan34/ruNNNpe-bridge/releases/tag/pre-release`
 - Final releases are still created only from `v*` tags.
 - F-Droid update checks ignore this tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
+- For testing, install `ruNNNpe bridge-release.apk`; `ruNNNpe bridge-debug.apk` is for debug/diagnostics.

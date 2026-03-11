@@ -90,6 +90,7 @@ If these secrets are not set, release publishing fails.
 - Every push to `master`/`main` updates rolling GitHub pre-release tag `pre-release` with latest APK/AAB artifacts.
 - Final release publication remains tag-gated (`vX.Y.Z`) via `Publish Release` workflow.
 - F-Droid update checks explicitly ignore pre-release tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
+- Both pre-release and final release notes include: artifact purpose (`which file to install`) and changelog history.
 
 ## Reproducible build requirements (F-Droid)
 
