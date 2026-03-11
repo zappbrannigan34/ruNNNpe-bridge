@@ -142,6 +142,14 @@ class BleForegroundService : Service() {
                             heartRateBpm = data.lastHeartRateBpm
                         )
                         updateNotif("✅ $summary")
+                        persistAndBroadcastTelemetry(
+                            durationMs = durationMs,
+                            currentSpeedKmh = data.lastSpeedMps * 3.6f,
+                            currentInclinePercent = data.lastInclinePercent,
+                            netCalories = calories.netCalories,
+                            grossCalories = calories.grossCalories,
+                            heartRateBpm = data.lastHeartRateBpm
+                        )
                         appendServiceLog("Workout saved: $summary")
                         if (!isStopping) {
                             delay(30_000)
@@ -443,14 +451,14 @@ class BleForegroundService : Service() {
         val currentSpeedKmh = stats.currentSpeedMps * 3.6f
         val calories = computeLiveCalories(stats, profile, now)
 
-        prefs().edit()
-            .putLong(PREF_DURATION_MS, stats.durationMs)
-            .putFloat(PREF_CURRENT_SPEED_KMH, currentSpeedKmh)
-            .putFloat(PREF_CURRENT_INCLINE, stats.currentInclinePercent)
-            .putFloat(PREF_CAL_NET, calories.netCalories.toFloat())
-            .putFloat(PREF_CAL_GROSS, calories.grossCalories.toFloat())
-            .putLong(PREF_HEART_RATE_BPM, stats.heartRateBpm ?: 0L)
-            .apply()
+        persistAndBroadcastTelemetry(
+            durationMs = stats.durationMs,
+            currentSpeedKmh = currentSpeedKmh,
+            currentInclinePercent = stats.currentInclinePercent,
+            netCalories = calories.netCalories,
+            grossCalories = calories.grossCalories,
+            heartRateBpm = stats.heartRateBpm
+        )
 
         if (stats.state != WorkoutStateMachine.State.IDLE) {
             updateNotif(
@@ -465,21 +473,39 @@ class BleForegroundService : Service() {
             )
         }
 
-        sendBroadcast(
-            Intent(ACTION_TELEMETRY)
-                .setPackage(packageName)
-                .putExtra(EXTRA_DURATION_MS, stats.durationMs)
-                .putExtra(EXTRA_CURRENT_SPEED_KMH, currentSpeedKmh)
-                .putExtra(EXTRA_CURRENT_INCLINE, stats.currentInclinePercent)
-                .putExtra(EXTRA_CAL_NET, calories.netCalories)
-                .putExtra(EXTRA_CAL_GROSS, calories.grossCalories)
-                .putExtra(EXTRA_WEIGHT_KG, weightKg)
-                .putExtra(EXTRA_HEART_RATE_BPM, stats.heartRateBpm ?: 0L)
-        )
-
         if (stats.state == WorkoutStateMachine.State.IDLE) {
             resetLiveCalorieState()
         }
+    }
+
+    private fun persistAndBroadcastTelemetry(
+        durationMs: Long,
+        currentSpeedKmh: Float,
+        currentInclinePercent: Float,
+        netCalories: Double,
+        grossCalories: Double,
+        heartRateBpm: Long?
+    ) {
+        prefs().edit()
+            .putLong(PREF_DURATION_MS, durationMs)
+            .putFloat(PREF_CURRENT_SPEED_KMH, currentSpeedKmh)
+            .putFloat(PREF_CURRENT_INCLINE, currentInclinePercent)
+            .putFloat(PREF_CAL_NET, netCalories.toFloat())
+            .putFloat(PREF_CAL_GROSS, grossCalories.toFloat())
+            .putLong(PREF_HEART_RATE_BPM, heartRateBpm ?: 0L)
+            .apply()
+
+        sendBroadcast(
+            Intent(ACTION_TELEMETRY)
+                .setPackage(packageName)
+                .putExtra(EXTRA_DURATION_MS, durationMs)
+                .putExtra(EXTRA_CURRENT_SPEED_KMH, currentSpeedKmh)
+                .putExtra(EXTRA_CURRENT_INCLINE, currentInclinePercent)
+                .putExtra(EXTRA_CAL_NET, netCalories)
+                .putExtra(EXTRA_CAL_GROSS, grossCalories)
+                .putExtra(EXTRA_WEIGHT_KG, weightKg)
+                .putExtra(EXTRA_HEART_RATE_BPM, heartRateBpm ?: 0L)
+        )
     }
 
     private fun computeLiveCalories(

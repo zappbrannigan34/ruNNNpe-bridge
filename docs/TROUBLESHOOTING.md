@@ -60,6 +60,12 @@
 - If any required permission is missing, it is requested again.
 - If Bluetooth is off, Android Bluetooth enable dialog is requested automatically.
 
+## Notification numbers differ from app screen metrics
+
+- Live telemetry and final workout summary are broadcast to the activity and saved to telemetry prefs.
+- If mismatch appears after an update, install the latest pre-release APK and retry one short workout.
+- If issue persists, open app once while workout is active to ensure telemetry receiver refreshes the on-screen metrics.
+
 ## GitHub Actions build failed
 
 - Check workflow logs in Actions tab.
