@@ -21,6 +21,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Ensure Gradle wrapper executable
+        run: chmod +x gradlew
+
       - name: Validate tag format
         run: |
           if [[ ! "${GITHUB_REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
