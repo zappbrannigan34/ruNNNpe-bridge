@@ -64,3 +64,4 @@ If these secrets are absent, publish workflow fails.
 - F-Droid update checks ignore this tag via `.fdroid.yml` `UpdateCheckIgnore: "(?i)pre-release"`.
 - For testing, install `ruNNNpe bridge-release.apk`; `ruNNNpe bridge-debug.apk` is for debug/diagnostics.
 - If pre-release publish ever reports unsigned release APK, workflow fails by design and pre-release is not updated.
+- Pre-release notes keep cumulative change history (new commit entries are prepended, old entries are preserved).

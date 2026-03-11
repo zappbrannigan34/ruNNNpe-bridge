@@ -129,9 +129,50 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release delete pre-release --yes --cleanup-tag || true
-          gh release create pre-release dist/*.apk dist/*.aab \
-            --target "${GITHUB_SHA}" \
-            --title "pre-release" \
-            --notes-file "dist/pre-release-notes.md" \
-            --prerelease
+          if gh release view pre-release >/dev/null 2>&1; then
+            gh release view pre-release --json body --jq .body > dist/pre-release-existing-notes.md
+
+            python - <<'PY'
+            from pathlib import Path
+
+            marker = "## Change history"
+            current = Path("dist/pre-release-notes.md").read_text(encoding="utf-8")
+            existing = Path("dist/pre-release-existing-notes.md").read_text(encoding="utf-8")
+
+            def split_sections(text: str):
+                if marker not in text:
+                    return text.strip(), []
+                before, after = text.split(marker, 1)
+                lines = [line.strip() for line in after.strip().splitlines() if line.strip()]
+                return before.rstrip(), lines
+
+            current_intro, current_history = split_sections(current)
+            _, existing_history = split_sections(existing)
+
+            merged = []
+            seen = set()
+            for line in current_history + existing_history:
+                if line in seen:
+                    continue
+                seen.add(line)
+                merged.append(line)
+
+            output = current_intro + "\n\n" + marker + "\n"
+            output += "\n".join(merged) if merged else "- No changes recorded."
+            output += "\n"
+            Path("dist/pre-release-notes-merged.md").write_text(output, encoding="utf-8")
+            PY
+
+            gh release edit pre-release \
+              --title "pre-release" \
+              --target "${GITHUB_SHA}" \
+              --notes-file "dist/pre-release-notes-merged.md" \
+              --prerelease
+            gh release upload pre-release dist/*.apk dist/*.aab --clobber
+          else
+            gh release create pre-release dist/*.apk dist/*.aab \
+              --target "${GITHUB_SHA}" \
+              --title "pre-release" \
+              --notes-file "dist/pre-release-notes.md" \
+              --prerelease
+          fi
