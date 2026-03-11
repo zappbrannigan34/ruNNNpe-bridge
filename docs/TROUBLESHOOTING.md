@@ -45,6 +45,7 @@
 - Verify required `WRITE_*` permissions are granted for records you expect to sync.
 - Verify required `READ_*` permissions are granted for profile/backfill paths (for example distance+steps for personal step-length inference).
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
+- `WRITE_EXERCISE_ROUTE` is optional for core sync; missing it should not block workout export, but can reduce elevation chart interoperability.
 
 ## Elevation graph missing or map looks wrong
 

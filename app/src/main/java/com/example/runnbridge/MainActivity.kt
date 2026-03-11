@@ -89,8 +89,10 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_ROUTE_ANCHOR_PERMISSION_ASKED = "route_anchor_permission_asked"
         private const val PREF_LAST_REQUIREMENTS_AUDIT_MS = "last_requirements_audit_ms"
         private const val PREF_LAST_REQUIREMENTS_AUDIT_VERSION_CODE = "last_requirements_audit_version_code"
+        private const val PREF_LAST_HC_CORE_REPROMPT_MS = "last_hc_core_reprompt_ms"
         private const val HC_WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
         private const val REQUIREMENTS_AUDIT_INTERVAL_MS = 6L * 60L * 60L * 1000L
+        private const val HC_CORE_REPROMPT_INTERVAL_MS = 6L * 60L * 60L * 1000L
         private const val STEP_LENGTH_LOOKBACK_DAYS = 14L
         private const val STEP_LENGTH_MIN_STEPS = 2_000.0
         private const val STEP_LENGTH_MIN_DISTANCE_M = 1_000.0
@@ -138,6 +140,8 @@ class MainActivity : AppCompatActivity() {
         HealthPermission.getWritePermission(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class),
     )
+    private val hcOptionalPerms = setOf(HC_WRITE_EXERCISE_ROUTE_PERMISSION)
+    private val hcRequiredPerms = hcPerms - hcOptionalPerms
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -227,16 +231,22 @@ class MainActivity : AppCompatActivity() {
     private val hcPermLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
-        if (granted.containsAll(hcPerms)) {
+        val missingRequired = hcRequiredPerms - granted
+        val missingOptional = hcOptionalPerms - granted
+        if (missingRequired.isEmpty()) {
             val next = afterHealthPermissionsGranted
             afterHealthPermissionsGranted = null
             afterHealthPermissionsDenied = null
+            if (missingOptional.isNotEmpty()) {
+                log("Health Connect optional permissions missing: ${missingOptional.joinToString()}")
+            }
             syncProfileFromHealthConnect { next?.invoke() }
         } else {
             val denied = afterHealthPermissionsDenied
             afterHealthPermissionsGranted = null
             afterHealthPermissionsDenied = null
             statusText.text = "❌ Health Connect permissions required"
+            log("Health Connect required permissions missing: ${missingRequired.joinToString()}")
             denied?.invoke()
         }
     }
@@ -335,6 +345,7 @@ class MainActivity : AppCompatActivity() {
         fillProfileInputsFromPrefs()
         refreshMetricsFromPrefs()
         maybeRunRequirementsAudit()
+        maybeRepairHealthConnectPermissionsOnStart()
     }
 
     override fun onStop() {
@@ -462,6 +473,36 @@ class MainActivity : AppCompatActivity() {
                     onDenied = { onDone() }
                 )
             }
+        }
+    }
+
+    private fun maybeRepairHealthConnectPermissionsOnStart() {
+        if (!prefs().getBoolean(PREF_INITIAL_PERMISSIONS_DONE, false)) return
+        if (HealthConnectClient.getSdkStatus(this) != HealthConnectClient.SDK_AVAILABLE) return
+
+        uiScope.launch {
+            val granted = runCatching {
+                HealthConnectClient.getOrCreate(this@MainActivity)
+                    .permissionController
+                    .getGrantedPermissions()
+            }.getOrElse {
+                log("Health Connect permission check failed: ${it.javaClass.simpleName}")
+                return@launch
+            }
+
+            val missingRequired = hcRequiredPerms - granted
+            if (missingRequired.isEmpty()) return@launch
+
+            val now = System.currentTimeMillis()
+            val lastRepromptMs = prefs().getLong(PREF_LAST_HC_CORE_REPROMPT_MS, 0L)
+            if (now - lastRepromptMs < HC_CORE_REPROMPT_INTERVAL_MS) {
+                log("Health Connect required permissions still missing; waiting for next reprompt window")
+                return@launch
+            }
+
+            prefs().edit().putLong(PREF_LAST_HC_CORE_REPROMPT_MS, now).apply()
+            log("Re-requesting missing Health Connect required permissions")
+            requestHealthPerms()
         }
     }
 
