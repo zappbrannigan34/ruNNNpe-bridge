@@ -100,6 +100,7 @@ class MainActivity : AppCompatActivity() {
         private const val STEP_LENGTH_MAX_M = 1.2
         private const val HC_READ_PAGE_SIZE = 500
         private const val HC_READ_MAX_PAGES = 6
+        private const val UI_LOG_DEDUPE_WINDOW_MS = 3_000L
     }
 
     private lateinit var statusText: TextView
@@ -118,6 +119,8 @@ class MainActivity : AppCompatActivity() {
     private var afterHealthPermissionsDenied: (() -> Unit)? = null
     private var afterNotificationPermissionResult: ((Boolean) -> Unit)? = null
     private var afterRouteAnchorPermissionResult: (() -> Unit)? = null
+    private var lastUiLogMessage: String? = null
+    private var lastUiLogMs = 0L
 
     private val hcPerms = setOf(
         HealthPermission.getReadPermission(WeightRecord::class),
@@ -1037,6 +1040,12 @@ class MainActivity : AppCompatActivity() {
     private fun prefs() = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
 
     private fun log(msg: String) {
+        val nowMs = System.currentTimeMillis()
+        if (msg == lastUiLogMessage && (nowMs - lastUiLogMs) < UI_LOG_DEDUPE_WINDOW_MS) {
+            return
+        }
+        lastUiLogMessage = msg
+        lastUiLogMs = nowMs
         val existing = prefs().getString(PREF_LOG_TEXT, "").orEmpty()
         val updated = (msg + "\n" + existing).take(8_000)
         prefs().edit().putString(PREF_LOG_TEXT, updated).apply()

@@ -46,6 +46,7 @@
 - Verify required `READ_*` permissions are granted for profile/backfill paths (for example distance+steps for personal step-length inference).
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
 - `WRITE_EXERCISE_ROUTE` is optional for core sync; missing it should not block workout export, but can reduce elevation chart interoperability.
+- If you see `route can not be out of parent time range`, update to the latest pre-release; virtual route points are now constrained to stay strictly inside the workout session time range.
 
 ## Elevation graph missing or map looks wrong
 
@@ -65,6 +66,12 @@
 - Live telemetry and final workout summary are broadcast to the activity and saved to telemetry prefs.
 - If mismatch appears after an update, install the latest pre-release APK and retry one short workout.
 - If issue persists, open app once while workout is active to ensure telemetry receiver refreshes the on-screen metrics.
+- Heart-rate value is intentionally cleared when HR BLE disconnects; `HR state: disconnected` should no longer keep stale current BPM on screen.
+
+## Speed is stuck at 0.0 km/h
+
+- Install the latest pre-release APK; FTMS speed parsing was hardened for treadmill variants that expose different flag layouts.
+- If RUNN is connected but speed remains `0.0`, share a fresh app log section around `Profile FTMS` and `Workout started`.
 
 ## GitHub Actions build failed
 

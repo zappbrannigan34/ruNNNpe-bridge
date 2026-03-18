@@ -110,6 +110,14 @@ class WorkoutStateMachine(
         }
     }
 
+    fun onHeartRateDisconnected() {
+        if (lastHeartRateBpm == null) return
+        lastHeartRateBpm = null
+        if (state != State.IDLE) {
+            onUpdate(currentStats(System.currentTimeMillis()))
+        }
+    }
+
     fun checkIdle() {
         if (state == State.IDLE) return
         val now = System.currentTimeMillis()

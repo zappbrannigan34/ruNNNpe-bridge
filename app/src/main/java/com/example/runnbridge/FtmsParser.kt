@@ -24,11 +24,12 @@ object FtmsParser {
         var positiveElevationGain: Float? = null
         var negativeElevationGain: Float? = null
 
-        // Bit 0 = 0 → speed present (INVERTED flag!)
-        if (flags and 0x0001 == 0 && off + 2 <= data.size) {
-            speed = u16(data, off) / 100f / 3.6f  // 0.01 km/h → m/s
-            off += 2
-        }
+        // Instantaneous speed is the first mandatory field in treadmill data.
+        // Parsing it unconditionally prevents valid speed from being dropped to 0.0
+        // when vendor flag layouts differ.
+        if (off + 2 > data.size) return emptyTreadmill()
+        speed = u16(data, off) / 100f / 3.6f  // 0.01 km/h → m/s
+        off += 2
 
         // Bit 1 -> optional speed field (ignored)
         if (flags and 0x0002 != 0 && off + 2 <= data.size) {

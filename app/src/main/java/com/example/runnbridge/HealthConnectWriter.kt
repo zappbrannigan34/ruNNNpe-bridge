@@ -239,8 +239,13 @@ object HealthConnectWriter {
         if (!hasPermission) return null
         if (workout.endMs <= workout.startMs) return null
 
+        val routeStartMs = workout.startMs
+        val routeEndExclusiveMs = workout.endMs
+        val routeLastPointMs = routeEndExclusiveMs - 1L
+        if (routeLastPointMs <= routeStartMs) return null
+
         val anchor = resolveRouteAnchor(context)
-        val durationMs = (workout.endMs - workout.startMs).coerceAtLeast(1L)
+        val durationMs = (routeEndExclusiveMs - routeStartMs).coerceAtLeast(1L)
         val dynamicSampleIntervalMs = maxOf(
             VIRTUAL_ROUTE_BASE_SAMPLE_MS,
             (durationMs + VIRTUAL_ROUTE_MAX_POINTS - 2L) / (VIRTUAL_ROUTE_MAX_POINTS - 1L)
@@ -248,22 +253,22 @@ object HealthConnectWriter {
         val routeLoopCircumferenceMeters = 2.0 * PI * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
 
         val speedSamples = workout.speeds
-            .filter { (ts, _) -> ts in workout.startMs..workout.endMs }
+            .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
             .sortedBy { it.first }
-            .ifEmpty { listOf(workout.startMs to workout.lastSpeedMps) }
+            .ifEmpty { listOf(routeStartMs to workout.lastSpeedMps) }
 
         val inclineSamples = workout.inclines
-            .filter { (ts, _) -> ts in workout.startMs..workout.endMs }
+            .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
             .sortedBy { it.first }
-            .ifEmpty { listOf(workout.startMs to workout.lastInclinePercent) }
+            .ifEmpty { listOf(routeStartMs to workout.lastInclinePercent) }
 
-        var speedIdx = speedSamples.indexOfLast { it.first <= workout.startMs }.coerceAtLeast(0)
-        var inclineIdx = inclineSamples.indexOfLast { it.first <= workout.startMs }.coerceAtLeast(0)
+        var speedIdx = speedSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
+        var inclineIdx = inclineSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
 
         val route = mutableListOf<ExerciseRoute.Location>()
         route +=
             buildVirtualRouteLocation(
-                timeMs = workout.startMs,
+                timeMs = routeStartMs,
                 anchor = anchor,
                 loopDistanceMeters = 0.0,
                 relativeAltitudeMeters = 0.0,
@@ -272,9 +277,9 @@ object HealthConnectWriter {
 
         var loopDistanceMeters = 0.0
         var relativeAltitudeMeters = 0.0
-        var cursor = workout.startMs
+        var cursor = routeStartMs
 
-        while (cursor < workout.endMs && route.size < VIRTUAL_ROUTE_MAX_POINTS) {
+        while (cursor < routeLastPointMs && route.size < VIRTUAL_ROUTE_MAX_POINTS) {
             while (speedIdx + 1 < speedSamples.size && speedSamples[speedIdx + 1].first <= cursor) {
                 speedIdx++
             }
@@ -282,7 +287,8 @@ object HealthConnectWriter {
                 inclineIdx++
             }
 
-            val nextMs = minOf(cursor + dynamicSampleIntervalMs, workout.endMs)
+            val nextMs = minOf(cursor + dynamicSampleIntervalMs, routeLastPointMs)
+            if (nextMs <= cursor) break
             val deltaSeconds = (nextMs - cursor) / 1000.0
             val speedMps = speedSamples[speedIdx].second.toDouble().coerceAtLeast(0.0)
             val grade = (inclineSamples[inclineIdx].second.toDouble() / 100.0).coerceIn(-0.25, 0.25)
@@ -302,10 +308,10 @@ object HealthConnectWriter {
             cursor = nextMs
         }
 
-        if (route.last().time != Instant.ofEpochMilli(workout.endMs)) {
+        if (route.last().time != Instant.ofEpochMilli(routeLastPointMs)) {
             route +=
                 buildVirtualRouteLocation(
-                    timeMs = workout.endMs,
+                    timeMs = routeLastPointMs,
                     anchor = anchor,
                     loopDistanceMeters = loopDistanceMeters,
                     relativeAltitudeMeters = relativeAltitudeMeters,

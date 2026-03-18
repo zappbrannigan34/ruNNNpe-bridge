@@ -56,6 +56,8 @@ class BleForegroundService : Service() {
         private const val SCAN_INTERVAL_MS = 10_000L
         private const val IDLE_CHECK_MS = 10_000L
         private const val TELEMETRY_PUSH_INTERVAL_MS = 500L
+        private const val SPEED_FALLBACK_WINDOW_MS = 7_500L
+        private const val LOG_DEDUPE_WINDOW_MS = 3_000L
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -76,6 +78,10 @@ class BleForegroundService : Service() {
     private var runnConnecting = false
     private var hrConnecting = false
     private var lastTelemetryPushMs = 0L
+    private var lastReliableSpeedMps = 0f
+    private var lastReliableSpeedMs = 0L
+    private var lastServiceLogMessage: String? = null
+    private var lastServiceLogMs = 0L
     private val activeScanSettings = ScanSettings.Builder()
         .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
         .build()
@@ -108,6 +114,7 @@ class BleForegroundService : Service() {
             .remove(PREF_RUNN_PROFILE)
             .putBoolean(PREF_RUNN_CONNECTED, false)
             .putBoolean(PREF_HR_CONNECTED, false)
+            .putLong(PREF_HEART_RATE_BPM, 0L)
             .apply()
 
         scanner = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
@@ -115,6 +122,8 @@ class BleForegroundService : Service() {
 
         workout = WorkoutStateMachine(
             onStart = {
+                lastReliableSpeedMps = 0f
+                lastReliableSpeedMs = 0L
                 appendServiceLog("Workout started")
                 updateNotif("🏃 Workout active...")
                 triggerHrReconnectScan("workout-start")
@@ -124,6 +133,11 @@ class BleForegroundService : Service() {
                     try {
                         HealthConnectWriter.writeWorkout(this@BleForegroundService, data)
                         val durationMs = (data.endMs - data.startMs).coerceAtLeast(0L)
+                        val summarySpeedMps = data.speeds
+                            .asReversed()
+                            .firstOrNull { (_, speedMps) -> speedMps > 0f }
+                            ?.second
+                            ?: data.lastSpeedMps
                         val profile = readProfileFromPrefs()
                         weightKg = profile.weightKg
                         val calories = CalorieEngine.estimateFromSamples(
@@ -135,7 +149,7 @@ class BleForegroundService : Service() {
                         )
                         val summary = formatMetricsLine(
                             durationMs = durationMs,
-                            speedKmh = data.lastSpeedMps * 3.6f,
+                            speedKmh = summarySpeedMps * 3.6f,
                             incline = data.lastInclinePercent,
                             netCalories = calories.netCalories,
                             grossCalories = calories.grossCalories,
@@ -144,7 +158,7 @@ class BleForegroundService : Service() {
                         updateNotif("✅ $summary")
                         persistAndBroadcastTelemetry(
                             durationMs = durationMs,
-                            currentSpeedKmh = data.lastSpeedMps * 3.6f,
+                            currentSpeedKmh = summarySpeedMps * 3.6f,
                             currentInclinePercent = data.lastInclinePercent,
                             netCalories = calories.netCalories,
                             grossCalories = calories.grossCalories,
@@ -302,7 +316,11 @@ class BleForegroundService : Service() {
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                 hrConnected = false
                 hrConnecting = false
-                prefs().edit().putBoolean(PREF_HR_CONNECTED, false).apply()
+                workout.onHeartRateDisconnected()
+                prefs().edit()
+                    .putBoolean(PREF_HR_CONNECTED, false)
+                    .putLong(PREF_HEART_RATE_BPM, 0L)
+                    .apply()
                 appendServiceLog("HR BLE disconnected")
                 triggerHrReconnectScan("hr-disconnected")
             }
@@ -448,34 +466,69 @@ class BleForegroundService : Service() {
 
         val profile = readProfileFromPrefs()
         weightKg = profile.weightKg
-        val currentSpeedKmh = stats.currentSpeedMps * 3.6f
-        val calories = computeLiveCalories(stats, profile, now)
+        val effectiveSpeedMps = resolveEffectiveSpeedMps(
+            nowMs = now,
+            rawSpeedMps = stats.currentSpeedMps,
+            state = stats.state
+        )
+        val effectiveHeartRateBpm = if (hrConnected) stats.heartRateBpm else null
+        val effectiveStats = stats.copy(
+            currentSpeedMps = effectiveSpeedMps,
+            heartRateBpm = effectiveHeartRateBpm
+        )
+        val currentSpeedKmh = effectiveStats.currentSpeedMps * 3.6f
+        val calories = computeLiveCalories(effectiveStats, profile, now)
 
         persistAndBroadcastTelemetry(
-            durationMs = stats.durationMs,
+            durationMs = effectiveStats.durationMs,
             currentSpeedKmh = currentSpeedKmh,
-            currentInclinePercent = stats.currentInclinePercent,
+            currentInclinePercent = effectiveStats.currentInclinePercent,
             netCalories = calories.netCalories,
             grossCalories = calories.grossCalories,
-            heartRateBpm = stats.heartRateBpm
+            heartRateBpm = effectiveStats.heartRateBpm
         )
 
-        if (stats.state != WorkoutStateMachine.State.IDLE) {
+        if (effectiveStats.state != WorkoutStateMachine.State.IDLE) {
             updateNotif(
                 formatMetricsLine(
-                    durationMs = stats.durationMs,
+                    durationMs = effectiveStats.durationMs,
                     speedKmh = currentSpeedKmh,
-                    incline = stats.currentInclinePercent,
+                    incline = effectiveStats.currentInclinePercent,
                     netCalories = calories.netCalories,
                     grossCalories = calories.grossCalories,
-                    heartRateBpm = stats.heartRateBpm
+                    heartRateBpm = effectiveStats.heartRateBpm
                 )
             )
         }
 
-        if (stats.state == WorkoutStateMachine.State.IDLE) {
+        if (effectiveStats.state == WorkoutStateMachine.State.IDLE) {
             resetLiveCalorieState()
         }
+    }
+
+    private fun resolveEffectiveSpeedMps(
+        nowMs: Long,
+        rawSpeedMps: Float,
+        state: WorkoutStateMachine.State
+    ): Float {
+        val normalizedRaw = rawSpeedMps.coerceAtLeast(0f)
+        if (state == WorkoutStateMachine.State.IDLE) {
+            lastReliableSpeedMps = 0f
+            lastReliableSpeedMs = 0L
+            return normalizedRaw
+        }
+
+        if (normalizedRaw > 0f) {
+            lastReliableSpeedMps = normalizedRaw
+            lastReliableSpeedMs = nowMs
+            return normalizedRaw
+        }
+
+        val fallbackAllowed = connected &&
+            lastReliableSpeedMps > 0f &&
+            (nowMs - lastReliableSpeedMs) <= SPEED_FALLBACK_WINDOW_MS
+
+        return if (fallbackAllowed) lastReliableSpeedMps else normalizedRaw
     }
 
     private fun persistAndBroadcastTelemetry(
@@ -624,6 +677,12 @@ class BleForegroundService : Service() {
     }
 
     private fun appendServiceLog(message: String) {
+        val nowMs = System.currentTimeMillis()
+        if (message == lastServiceLogMessage && (nowMs - lastServiceLogMs) < LOG_DEDUPE_WINDOW_MS) {
+            return
+        }
+        lastServiceLogMessage = message
+        lastServiceLogMs = nowMs
         Log.i(TAG, message)
         val existing = prefs().getString(PREF_LOG_TEXT, "").orEmpty()
         val updated = (message + "\n" + existing).take(8_000)
