@@ -38,8 +38,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.content.IntentCompat
-import androidx.core.content.PackageManagerCompat
-import androidx.core.content.UnusedAppRestrictionsConstants
 import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.PermissionController
 import androidx.health.connect.client.permission.HealthPermission
@@ -102,7 +100,7 @@ class MainActivity : AppCompatActivity() {
         private const val REQUIREMENTS_AUDIT_INTERVAL_MS = 6L * 60L * 60L * 1000L
         private const val HC_CORE_REPROMPT_INTERVAL_MS = 15L * 60L * 1000L
         private const val HC_SETTINGS_OPEN_THROTTLE_MS = 2L * 60L * 1000L
-        private const val UNUSED_APP_RESTRICTIONS_PROMPT_INTERVAL_MS = 12L * 60L * 60L * 1000L
+        private const val UNUSED_APP_RESTRICTIONS_PROMPT_INTERVAL_MS = 30L * 24L * 60L * 60L * 1000L
         private const val STEP_LENGTH_LOOKBACK_DAYS = 14L
         private const val STEP_LENGTH_MIN_STEPS = 2_000.0
         private const val STEP_LENGTH_MIN_DISTANCE_M = 1_000.0
@@ -593,50 +591,36 @@ class MainActivity : AppCompatActivity() {
         val lastPromptMs = prefs().getLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_MS, 0L)
         val lastPromptVersionCode = prefs().getLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_VERSION_CODE, -1L)
         val updateDetected = currentVersionCode > 0L && currentVersionCode != lastPromptVersionCode
-        if (!updateDetected && now - lastPromptMs < UNUSED_APP_RESTRICTIONS_PROMPT_INTERVAL_MS) return
+        val periodicDue = lastPromptMs == 0L || now - lastPromptMs >= UNUSED_APP_RESTRICTIONS_PROMPT_INTERVAL_MS
+        if (!updateDetected && !periodicDue) return
 
         unusedAppRestrictionsPromptInFlight = true
-        uiScope.launch {
-            val shouldPrompt = withContext(Dispatchers.IO) {
-                val status = runCatching {
-                    PackageManagerCompat.getUnusedAppRestrictionsStatus(this@MainActivity).get()
-                }.getOrNull() ?: return@withContext false
+        prefs().edit()
+            .putLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_MS, now)
+            .putLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_VERSION_CODE, currentVersionCode)
+            .apply()
 
-                when (status) {
-                    UnusedAppRestrictionsConstants.API_30_BACKPORT,
-                    UnusedAppRestrictionsConstants.API_30,
-                    UnusedAppRestrictionsConstants.API_31 -> true
-                    else -> false
-                }
-            }
+        val reason = if (updateDetected) "update" else "startup"
+        val opened = runCatching {
+            startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(this, packageName))
+        }.isSuccess
+
+        if (opened) {
+            log("Requesting disable for app inactivity auto-reset ($reason)")
             unusedAppRestrictionsPromptInFlight = false
-            if (!shouldPrompt) return@launch
-
-            prefs().edit()
-                .putLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_MS, now)
-                .putLong(PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_VERSION_CODE, currentVersionCode)
-                .apply()
-
-            val reason = if (updateDetected) "update" else "startup"
-            val opened = runCatching {
-                startActivity(IntentCompat.createManageUnusedAppRestrictionsIntent(this@MainActivity, packageName))
-            }.isSuccess
-
-            if (opened) {
-                log("Requesting disable for app inactivity auto-reset ($reason)")
-                return@launch
-            }
-
-            val fallbackOpened = runCatching {
-                startActivity(
-                    Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
-                        .setData(Uri.parse("package:$packageName"))
-                )
-            }.isSuccess
-            if (fallbackOpened) {
-                log("Opening app details to disable inactivity auto-reset ($reason)")
-            }
+            return
         }
+
+        val fallbackOpened = runCatching {
+            startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                    .setData(Uri.parse("package:$packageName"))
+            )
+        }.isSuccess
+        if (fallbackOpened) {
+            log("Opening app details to disable inactivity auto-reset ($reason)")
+        }
+        unusedAppRestrictionsPromptInFlight = false
     }
 
     private fun requestRouteAnchorPermissionIfNeeded(forceRequest: Boolean = false, onDone: () -> Unit) {
