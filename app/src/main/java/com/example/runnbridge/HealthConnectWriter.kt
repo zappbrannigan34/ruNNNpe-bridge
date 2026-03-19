@@ -27,7 +27,10 @@ import androidx.health.connect.client.units.Power
 import androidx.health.connect.client.units.Velocity
 import java.time.Instant
 import java.time.ZoneId
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.roundToLong
+import kotlin.math.sin
 
 object HealthConnectWriter {
     private const val TAG = "HCWriter"
@@ -38,12 +41,15 @@ object HealthConnectWriter {
     private const val MAX_RECORDS_PER_INSERT = 900
     private const val DEFAULT_STEP_LENGTH_METERS = 0.78
     private const val METERS_PER_FLOOR = 3.048
+    private const val METERS_PER_DEGREE_LAT = 111_320.0
     private const val VIRTUAL_ROUTE_BASE_SAMPLE_MS = 10_000L
     private const val VIRTUAL_ROUTE_MAX_POINTS = 600
+    private const val VIRTUAL_ROUTE_LOOP_RADIUS_METERS = 1_000.0
+    private const val VIRTUAL_ROUTE_MIN_PROGRESS_MPS = 0.10
     private const val VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M = 5.0
     private const val VIRTUAL_ROUTE_VERTICAL_ACCURACY_M = 2.0
-    private const val VIRTUAL_ROUTE_FIXED_LAT = 0.0
-    private const val VIRTUAL_ROUTE_FIXED_LON = 0.0
+    private const val VIRTUAL_ROUTE_CENTER_LAT = 0.0
+    private const val VIRTUAL_ROUTE_CENTER_LON = 0.0
     private const val VIRTUAL_ROUTE_BASE_ALT_M = 20.0
     private const val WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
     private const val PREF_STEP_LENGTH_M = "step_length_m"
@@ -230,6 +236,7 @@ object HealthConnectWriter {
             VIRTUAL_ROUTE_BASE_SAMPLE_MS,
             (durationMs + VIRTUAL_ROUTE_MAX_POINTS - 2L) / (VIRTUAL_ROUTE_MAX_POINTS - 1L)
         )
+        val routeLoopCircumferenceMeters = 2.0 * PI * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
 
         val speedSamples = workout.speeds
             .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
@@ -245,8 +252,14 @@ object HealthConnectWriter {
         var inclineIdx = inclineSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
 
         val route = mutableListOf<ExerciseRoute.Location>()
-        route += buildVirtualRouteLocation(timeMs = routeStartMs, altitudeOffsetMeters = 0.0)
+        route += buildVirtualRouteLocation(
+            timeMs = routeStartMs,
+            loopDistanceMeters = 0.0,
+            altitudeOffsetMeters = 0.0,
+            loopCircumferenceMeters = routeLoopCircumferenceMeters
+        )
 
+        var loopDistanceMeters = 0.0
         var altitudeOffsetMeters = 0.0
         var cursor = routeStartMs
 
@@ -262,16 +275,37 @@ object HealthConnectWriter {
             if (nextMs <= cursor) break
             val deltaSeconds = (nextMs - cursor) / 1000.0
             val speedMps = speedSamples[speedIdx].second.toDouble().coerceAtLeast(0.0)
+            val movementMps = speedMps.coerceAtLeast(VIRTUAL_ROUTE_MIN_PROGRESS_MPS)
             val grade = (inclineSamples[inclineIdx].second.toDouble() / 100.0).coerceIn(0.0, 0.25)
-            altitudeOffsetMeters += speedMps * deltaSeconds * grade
+            val horizontalMeters = movementMps * deltaSeconds
+            loopDistanceMeters += horizontalMeters
+            altitudeOffsetMeters += (speedMps * deltaSeconds) * grade
 
-            route += buildVirtualRouteLocation(timeMs = nextMs, altitudeOffsetMeters = altitudeOffsetMeters)
+            route += buildVirtualRouteLocation(
+                timeMs = nextMs,
+                loopDistanceMeters = loopDistanceMeters,
+                altitudeOffsetMeters = altitudeOffsetMeters,
+                loopCircumferenceMeters = routeLoopCircumferenceMeters
+            )
 
             cursor = nextMs
         }
 
         if (route.last().time != Instant.ofEpochMilli(routeLastPointMs)) {
-            route += buildVirtualRouteLocation(timeMs = routeLastPointMs, altitudeOffsetMeters = altitudeOffsetMeters)
+            route += buildVirtualRouteLocation(
+                timeMs = routeLastPointMs,
+                loopDistanceMeters = loopDistanceMeters,
+                altitudeOffsetMeters = altitudeOffsetMeters,
+                loopCircumferenceMeters = routeLoopCircumferenceMeters
+            )
+        }
+
+        val hasGeometry = route.zipWithNext().any { (prev, next) ->
+            prev.latitude != next.latitude || prev.longitude != next.longitude
+        }
+        if (!hasGeometry) {
+            Log.w(TAG, "Skipping virtual route write: geometry is degenerate")
+            return null
         }
 
         return route.takeIf { it.size >= 2 }?.let { ExerciseRoute(it) }
@@ -279,17 +313,33 @@ object HealthConnectWriter {
 
     private fun buildVirtualRouteLocation(
         timeMs: Long,
-        altitudeOffsetMeters: Double
+        loopDistanceMeters: Double,
+        altitudeOffsetMeters: Double,
+        loopCircumferenceMeters: Double
     ): ExerciseRoute.Location {
+        val angleRad = (loopDistanceMeters / loopCircumferenceMeters) * 2.0 * PI
+        val northMeters = sin(angleRad) * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
+        val eastMeters = cos(angleRad) * VIRTUAL_ROUTE_LOOP_RADIUS_METERS
+
+        val latitude = (VIRTUAL_ROUTE_CENTER_LAT + northMeters / METERS_PER_DEGREE_LAT).coerceIn(-89.999999, 89.999999)
+        val metersPerDegreeLon = (METERS_PER_DEGREE_LAT * cos(Math.toRadians(VIRTUAL_ROUTE_CENTER_LAT))).coerceAtLeast(1.0)
+        val longitude = normalizeLongitude(VIRTUAL_ROUTE_CENTER_LON + eastMeters / metersPerDegreeLon)
         val altitudeMeters = (VIRTUAL_ROUTE_BASE_ALT_M + altitudeOffsetMeters).coerceIn(-500.0, 9000.0)
         return ExerciseRoute.Location(
             time = Instant.ofEpochMilli(timeMs),
-            latitude = VIRTUAL_ROUTE_FIXED_LAT,
-            longitude = VIRTUAL_ROUTE_FIXED_LON,
+            latitude = latitude,
+            longitude = longitude,
             horizontalAccuracy = Length.meters(VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M),
             verticalAccuracy = Length.meters(VIRTUAL_ROUTE_VERTICAL_ACCURACY_M),
             altitude = Length.meters(altitudeMeters)
         )
+    }
+
+    private fun normalizeLongitude(longitude: Double): Double {
+        var value = longitude
+        while (value > 180.0) value -= 360.0
+        while (value < -180.0) value += 360.0
+        return value
     }
 
     private fun buildSpeedRecords(

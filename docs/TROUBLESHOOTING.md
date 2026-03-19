@@ -47,15 +47,15 @@
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
 - On app updates, missing required Health Connect permissions are re-requested automatically on app start.
 - If Android suppresses the permission prompt, the app now opens Health Connect settings as recovery fallback.
-- Treadmill export writes a synthetic fixed-point `ExerciseRoute` with monotonic altitude to improve Fit ascent chart behavior.
+- Treadmill export writes a synthetic circular `ExerciseRoute` (moving coordinates) with monotonic altitude to improve Fit ascent chart behavior.
 - `WRITE_EXERCISE_ROUTE` is required for this route-backed ascent profile; if denied, workout sync still works but Fit elevation graph may be missing.
 
 ## Elevation graph missing or map looks wrong
 
-- Treadmill sessions export a synthetic fixed-point route with non-decreasing altitude to drive ascent profile rendering in Fit.
+- Treadmill sessions export a synthetic circular route with non-decreasing altitude to drive ascent profile rendering in Fit.
 - Elevation sync is also written via dense positive-only `ElevationGainedRecord` intervals plus derived `FloorsClimbedRecord`.
 - If Fit shows no ascent graph, verify Health Connect write permissions for `WRITE_EXERCISE_ROUTE`, `ElevationGainedRecord`, and `FloorsClimbedRecord`, then rerun a short workout.
-- Route points are intentionally anchored to a fixed coordinate (not your real location), so map shape is not meaningful.
+- Route points are synthetic and not intended to represent your real outdoor path.
 
 ## App asks for permissions or Bluetooth again
 

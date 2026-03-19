@@ -8,7 +8,7 @@ This document tracks which Health Connect data types are currently written by `r
 |---|---|---|---|
 | `ExerciseSessionRecord` | Written | workout start/end, inferred exercise type | Uses `RUNNING_TREADMILL` or `WALKING`. |
 | `ExerciseSegment` | Written | inferred exercise type | Single segment covering full session. |
-| `ExerciseRoute` | Written when route permission is granted | synthetic fixed-point route + monotonic altitude profile derived from speed/incline | Used to improve Fit ascent profile rendering without exposing real user location. |
+| `ExerciseRoute` | Written when route permission is granted | synthetic circular route + monotonic altitude profile derived from speed/incline | Used to improve Fit ascent profile rendering while avoiding real-world GPS tracking. |
 | `SpeedRecord` | Written | speed samples | Chunked series write for long workouts. |
 | `DistanceRecord` | Written | distance total | Sensor distance delta or speed integration fallback. |
 | `StepsRecord` | Written | cadence-integrated steps, or distance fallback | Fallback uses personal step length when available. |
@@ -40,7 +40,7 @@ This document tracks which Health Connect data types are currently written by `r
 ## Treadmill elevation chart note
 
 - Exercise type (`WALKING` vs `RUNNING_TREADMILL`) does not provide altitude samples by itself.
-- This bridge writes a synthetic fixed-point `ExerciseRoute` with non-decreasing altitude to provide a profile for consumers that rely on route altitude.
+- This bridge writes a synthetic circular `ExerciseRoute` with non-decreasing altitude to provide a profile for consumers that rely on route altitude.
 - Elevation export also uses `ElevationGainedRecord` intervals and `FloorsClimbedRecord` totals.
 - `WRITE_EXERCISE_ROUTE` permission should be granted for best Fit elevation chart interoperability.
 
