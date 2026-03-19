@@ -61,6 +61,7 @@
 
 - The app re-checks required permissions automatically after updates and periodically during normal use.
 - If any required permission is missing, it is requested again.
+- If `Pause app activity if unused` is enabled, Android can revoke granted permissions later; the app now prompts to disable this inactive-app restriction on startup/update.
 - If Bluetooth is off, Android Bluetooth enable dialog is requested automatically.
 
 ## Notification numbers differ from app screen metrics
