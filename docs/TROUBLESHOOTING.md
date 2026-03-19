@@ -45,6 +45,8 @@
 - Verify required `WRITE_*` permissions are granted for records you expect to sync.
 - Verify required `READ_*` permissions are granted for profile/backfill paths (for example distance+steps for personal step-length inference).
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
+- On app updates, missing required Health Connect permissions are re-requested automatically on app start.
+- If Android suppresses the permission prompt, the app now opens Health Connect settings as recovery fallback.
 - `WRITE_EXERCISE_ROUTE` is optional for core sync; missing it should not block workout export, but can reduce elevation chart interoperability.
 - If you see `route can not be out of parent time range`, update to the latest pre-release; virtual route points are now constrained to stay strictly inside the workout session time range.
 
