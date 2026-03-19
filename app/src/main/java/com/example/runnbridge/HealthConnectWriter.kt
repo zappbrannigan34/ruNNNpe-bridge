@@ -47,7 +47,7 @@ object HealthConnectWriter {
     private const val METERS_PER_DEGREE_LAT = 111_320.0
     private const val VIRTUAL_ROUTE_BASE_SAMPLE_MS = 10_000L
     private const val VIRTUAL_ROUTE_MAX_POINTS = 600
-    private const val VIRTUAL_ROUTE_LOOP_RADIUS_METERS = 20.0
+    private const val VIRTUAL_ROUTE_LOOP_RADIUS_METERS = 1_000.0
     private const val VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M = 5.0
     private const val VIRTUAL_ROUTE_VERTICAL_ACCURACY_M = 2.0
     private const val VIRTUAL_ROUTE_FALLBACK_LAT = 0.0

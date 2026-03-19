@@ -55,6 +55,7 @@
 - For treadmill sessions, elevation profile in consumer apps depends on `ExerciseRoute` availability, not only `ElevationGainedRecord`.
 - Grant Health Connect route permission (`WRITE_EXERCISE_ROUTE`) and rerun one workout.
 - Optional location permission (`ACCESS_COARSE_LOCATION`) helps anchor virtual route near your training place.
+- Latest pre-release generates a circular virtual route with radius around `1 km` (instead of a near-point loop), so map rendering should no longer look like a straight tiny segment.
 - If location permission is denied, the app still exports a virtual route using cached/default anchor, so charts can render but map placement may be generic.
 
 ## App asks for permissions or Bluetooth again
