@@ -87,7 +87,6 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_SEX = "sex"
         private const val PREF_BMR_WATTS = "bmr_watts"
         private const val PREF_STEP_LENGTH_M = "step_length_m"
-        private const val PREF_ROUTE_ANCHOR_PERMISSION_ASKED = "route_anchor_permission_asked"
         private const val PREF_LAST_REQUIREMENTS_AUDIT_MS = "last_requirements_audit_ms"
         private const val PREF_LAST_REQUIREMENTS_AUDIT_VERSION_CODE = "last_requirements_audit_version_code"
         private const val PREF_LAST_HC_CORE_REPROMPT_MS = "last_hc_core_reprompt_ms"
@@ -95,7 +94,6 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_LAST_HC_SETTINGS_OPEN_MS = "last_hc_settings_open_ms"
         private const val PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_MS = "last_unused_app_restrictions_prompt_ms"
         private const val PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_VERSION_CODE = "last_unused_app_restrictions_prompt_version_code"
-        private const val HC_WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
         private const val HEALTH_CONNECT_SETTINGS_ACTION = "androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"
         private const val REQUIREMENTS_AUDIT_INTERVAL_MS = 6L * 60L * 60L * 1000L
         private const val HC_CORE_REPROMPT_INTERVAL_MS = 15L * 60L * 1000L
@@ -126,7 +124,6 @@ class MainActivity : AppCompatActivity() {
     private var afterHealthPermissionsGranted: (() -> Unit)? = null
     private var afterHealthPermissionsDenied: (() -> Unit)? = null
     private var afterNotificationPermissionResult: ((Boolean) -> Unit)? = null
-    private var afterRouteAnchorPermissionResult: (() -> Unit)? = null
     private var lastUiLogMessage: String? = null
     private var lastUiLogMs = 0L
     private var healthPermissionRepairInFlight = false
@@ -148,13 +145,11 @@ class MainActivity : AppCompatActivity() {
         HealthPermission.getWritePermission(StepsCadenceRecord::class),
         HealthPermission.getWritePermission(ElevationGainedRecord::class),
         HealthPermission.getWritePermission(FloorsClimbedRecord::class),
-        HC_WRITE_EXERCISE_ROUTE_PERMISSION,
         HealthPermission.getWritePermission(androidx.health.connect.client.records.HeartRateRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class),
     )
-    private val hcOptionalPerms = setOf(HC_WRITE_EXERCISE_ROUTE_PERMISSION)
-    private val hcRequiredPerms = hcPerms - hcOptionalPerms
+    private val hcRequiredPerms = hcPerms
 
     private val telemetryReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -230,30 +225,15 @@ class MainActivity : AppCompatActivity() {
         next?.invoke(granted)
     }
 
-    private val routeAnchorPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (!granted) {
-            log("Location permission denied; virtual route anchor uses cached/default point")
-        }
-        val next = afterRouteAnchorPermissionResult
-        afterRouteAnchorPermissionResult = null
-        next?.invoke()
-    }
-
     private val hcPermLauncher = registerForActivityResult(
         PermissionController.createRequestPermissionResultContract()
     ) { granted ->
         healthPermissionRepairInFlight = false
         val missingRequired = hcRequiredPerms - granted
-        val missingOptional = hcOptionalPerms - granted
         if (missingRequired.isEmpty()) {
             val next = afterHealthPermissionsGranted
             afterHealthPermissionsGranted = null
             afterHealthPermissionsDenied = null
-            if (missingOptional.isNotEmpty()) {
-                log("Health Connect optional permissions missing: ${missingOptional.joinToString()}")
-            }
             syncProfileFromHealthConnect { next?.invoke() }
         } else {
             val denied = afterHealthPermissionsDenied
@@ -391,9 +371,7 @@ class MainActivity : AppCompatActivity() {
             ensureBluetoothEnabled {
                 requestHealthPerms(
                     onGranted = {
-                        requestRouteAnchorPermissionIfNeeded {
-                            startBleScan()
-                        }
+                        startBleScan()
                     },
                 onDenied = {
                     openHealthConnectSettingsForPermissionRecovery("setup")
@@ -424,15 +402,13 @@ class MainActivity : AppCompatActivity() {
             ensureBluetoothEnabled {
                 requestHealthPerms(
                     onGranted = {
-                        requestRouteAnchorPermissionIfNeeded {
-                            requestNotificationPermission { notificationGranted ->
-                                requestBatteryExemption()
-                                if (notificationGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
-                                    prefs().edit().putBoolean(PREF_INITIAL_PERMISSIONS_DONE, true).apply()
-                                    log("Initial permissions completed")
-                                } else {
-                                    log("Initial permissions incomplete: notification denied")
-                                }
+                        requestNotificationPermission { notificationGranted ->
+                            requestBatteryExemption()
+                            if (notificationGranted || Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
+                                prefs().edit().putBoolean(PREF_INITIAL_PERMISSIONS_DONE, true).apply()
+                                log("Initial permissions completed")
+                            } else {
+                                log("Initial permissions incomplete: notification denied")
                             }
                         }
                     },
@@ -491,9 +467,7 @@ class MainActivity : AppCompatActivity() {
 
                 requestHealthPerms(
                     onGranted = {
-                        requestRouteAnchorPermissionIfNeeded(forceRequest = true) {
-                            requestNotificationPermission { _ -> onDone() }
-                        }
+                        requestNotificationPermission { _ -> onDone() }
                     },
                     onDenied = {
                         openHealthConnectSettingsForPermissionRecovery("audit")
@@ -621,26 +595,6 @@ class MainActivity : AppCompatActivity() {
             log("Opening app details to disable inactivity auto-reset ($reason)")
         }
         unusedAppRestrictionsPromptInFlight = false
-    }
-
-    private fun requestRouteAnchorPermissionIfNeeded(forceRequest: Boolean = false, onDone: () -> Unit) {
-        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (hasFine || hasCoarse) {
-            onDone()
-            return
-        }
-
-        if (!forceRequest && prefs().getBoolean(PREF_ROUTE_ANCHOR_PERMISSION_ASKED, false)) {
-            onDone()
-            return
-        }
-
-        if (!forceRequest) {
-            prefs().edit().putBoolean(PREF_ROUTE_ANCHOR_PERMISSION_ASKED, true).apply()
-        }
-        afterRouteAnchorPermissionResult = onDone
-        routeAnchorPermissionLauncher.launch(Manifest.permission.ACCESS_COARSE_LOCATION)
     }
 
     private fun currentAppVersionCode(): Long {

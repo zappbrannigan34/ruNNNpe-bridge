@@ -47,22 +47,21 @@
 - After permission model changes between app versions, revoke + grant permissions once to refresh the granted set.
 - On app updates, missing required Health Connect permissions are re-requested automatically on app start.
 - If Android suppresses the permission prompt, the app now opens Health Connect settings as recovery fallback.
-- `WRITE_EXERCISE_ROUTE` is optional for core sync; missing it should not block workout export, but can reduce elevation chart interoperability.
-- If you see `route can not be out of parent time range`, update to the latest pre-release; virtual route points are now constrained to stay strictly inside the workout session time range.
+- Treadmill export now intentionally omits `ExerciseRoute` to avoid consumer terrain/map side effects; route permission is not required for core sync.
 
 ## Elevation graph missing or map looks wrong
 
-- For treadmill sessions, elevation profile in consumer apps depends on `ExerciseRoute` availability, not only `ElevationGainedRecord`.
-- Grant Health Connect route permission (`WRITE_EXERCISE_ROUTE`) and rerun one workout.
-- Optional location permission (`ACCESS_COARSE_LOCATION`) helps anchor virtual route near your training place.
-- Latest pre-release generates a circular virtual route with radius around `1 km` (instead of a near-point loop), so map rendering should no longer look like a straight tiny segment.
-- If location permission is denied, the app still exports a virtual route using cached/default anchor, so charts can render but map placement may be generic.
+- For treadmill sessions, the bridge does not export a map route; this is expected.
+- Elevation sync is written via dense positive-only `ElevationGainedRecord` intervals plus derived `FloorsClimbedRecord`.
+- If Fit still shows no ascent data, verify Health Connect write permissions for `ElevationGainedRecord` and `FloorsClimbedRecord`, then rerun a short workout.
+- If a map appears in Fit for that workout, the route likely comes from another data origin, not this bridge export.
 
 ## App asks for permissions or Bluetooth again
 
 - The app re-checks required permissions automatically after updates and periodically during normal use.
 - If any required permission is missing, it is requested again.
 - If `Pause app activity if unused` is enabled, Android can revoke granted permissions later; the app now prompts to disable this inactive-app restriction on startup/update.
+- Route-anchor location permission is no longer requested for treadmill export.
 - If Bluetooth is off, Android Bluetooth enable dialog is requested automatically.
 
 ## Notification numbers differ from app screen metrics
