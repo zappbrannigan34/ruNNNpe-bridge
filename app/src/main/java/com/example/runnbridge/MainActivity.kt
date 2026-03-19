@@ -94,6 +94,7 @@ class MainActivity : AppCompatActivity() {
         private const val PREF_LAST_HC_SETTINGS_OPEN_MS = "last_hc_settings_open_ms"
         private const val PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_MS = "last_unused_app_restrictions_prompt_ms"
         private const val PREF_LAST_UNUSED_APP_RESTRICTIONS_PROMPT_VERSION_CODE = "last_unused_app_restrictions_prompt_version_code"
+        private const val HC_WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
         private const val HEALTH_CONNECT_SETTINGS_ACTION = "androidx.health.ACTION_HEALTH_CONNECT_SETTINGS"
         private const val REQUIREMENTS_AUDIT_INTERVAL_MS = 6L * 60L * 60L * 1000L
         private const val HC_CORE_REPROMPT_INTERVAL_MS = 15L * 60L * 1000L
@@ -145,6 +146,7 @@ class MainActivity : AppCompatActivity() {
         HealthPermission.getWritePermission(StepsCadenceRecord::class),
         HealthPermission.getWritePermission(ElevationGainedRecord::class),
         HealthPermission.getWritePermission(FloorsClimbedRecord::class),
+        HC_WRITE_EXERCISE_ROUTE_PERMISSION,
         HealthPermission.getWritePermission(androidx.health.connect.client.records.HeartRateRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.ActiveCaloriesBurnedRecord::class),
         HealthPermission.getWritePermission(androidx.health.connect.client.records.TotalCaloriesBurnedRecord::class),

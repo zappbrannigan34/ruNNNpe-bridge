@@ -8,7 +8,7 @@ This document tracks which Health Connect data types are currently written by `r
 |---|---|---|---|
 | `ExerciseSessionRecord` | Written | workout start/end, inferred exercise type | Uses `RUNNING_TREADMILL` or `WALKING`. |
 | `ExerciseSegment` | Written | inferred exercise type | Single segment covering full session. |
-| `ExerciseRoute` | Not written (intentional) | n/a | Omitted for treadmill exports to avoid map/terrain-derived elevation side effects in consumers. |
+| `ExerciseRoute` | Written when route permission is granted | synthetic fixed-point route + monotonic altitude profile derived from speed/incline | Used to improve Fit ascent profile rendering without exposing real user location. |
 | `SpeedRecord` | Written | speed samples | Chunked series write for long workouts. |
 | `DistanceRecord` | Written | distance total | Sensor distance delta or speed integration fallback. |
 | `StepsRecord` | Written | cadence-integrated steps, or distance fallback | Fallback uses personal step length when available. |
@@ -40,13 +40,15 @@ This document tracks which Health Connect data types are currently written by `r
 ## Treadmill elevation chart note
 
 - Exercise type (`WALKING` vs `RUNNING_TREADMILL`) does not provide altitude samples by itself.
-- This bridge intentionally does not write `ExerciseRoute` for treadmill sessions.
-- Elevation export uses `ElevationGainedRecord` intervals and `FloorsClimbedRecord` totals only.
-- Consumer chart rendering from these records remains app-dependent.
+- This bridge writes a synthetic fixed-point `ExerciseRoute` with non-decreasing altitude to provide a profile for consumers that rely on route altitude.
+- Elevation export also uses `ElevationGainedRecord` intervals and `FloorsClimbedRecord` totals.
+- `WRITE_EXERCISE_ROUTE` permission should be granted for best Fit elevation chart interoperability.
 
 ## References
 
 - Health Connect data types and permissions: <https://developer.android.com/health-and-fitness/health-connect/data-types>
+- Exercise routes guide: <https://developer.android.com/health-and-fitness/health-connect/features/exercise-routes>
 - `StepsCadenceRecord` API: <https://developer.android.com/reference/androidx/health/connect/client/records/StepsCadenceRecord>
 - `ElevationGainedRecord` API: <https://developer.android.com/reference/androidx/health/connect/client/records/ElevationGainedRecord>
+- `ExerciseRoute.Location` API: <https://developer.android.com/reference/android/health/connect/datatypes/ExerciseRoute.Location>
 - Google Fit elevation note: <https://support.google.com/fit/answer/6075066?hl=en>

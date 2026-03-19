@@ -8,6 +8,7 @@ import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.BasalMetabolicRateRecord
 import androidx.health.connect.client.records.DistanceRecord
 import androidx.health.connect.client.records.ElevationGainedRecord
+import androidx.health.connect.client.records.ExerciseRoute
 import androidx.health.connect.client.records.ExerciseSegment
 import androidx.health.connect.client.records.ExerciseSessionRecord
 import androidx.health.connect.client.records.FloorsClimbedRecord
@@ -37,6 +38,14 @@ object HealthConnectWriter {
     private const val MAX_RECORDS_PER_INSERT = 900
     private const val DEFAULT_STEP_LENGTH_METERS = 0.78
     private const val METERS_PER_FLOOR = 3.048
+    private const val VIRTUAL_ROUTE_BASE_SAMPLE_MS = 10_000L
+    private const val VIRTUAL_ROUTE_MAX_POINTS = 600
+    private const val VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M = 5.0
+    private const val VIRTUAL_ROUTE_VERTICAL_ACCURACY_M = 2.0
+    private const val VIRTUAL_ROUTE_FIXED_LAT = 0.0
+    private const val VIRTUAL_ROUTE_FIXED_LON = 0.0
+    private const val VIRTUAL_ROUTE_BASE_ALT_M = 20.0
+    private const val WRITE_EXERCISE_ROUTE_PERMISSION = "android.permission.health.WRITE_EXERCISE_ROUTE"
     private const val PREF_STEP_LENGTH_M = "step_length_m"
 
     suspend fun writeWorkout(ctx: Context, w: WorkoutStateMachine.WorkoutData) {
@@ -91,6 +100,10 @@ object HealthConnectWriter {
             elevationGainMeters = elevationGainMeters,
             hasPermission = grantedPermissions.contains(HealthPermission.getWritePermission(FloorsClimbedRecord::class))
         )
+        val exerciseRoute = buildVirtualExerciseRoute(
+            workout = w,
+            hasPermission = grantedPermissions.contains(WRITE_EXERCISE_ROUTE_PERMISSION)
+        )
 
         val records = mutableListOf<Record>()
 
@@ -103,6 +116,7 @@ object HealthConnectWriter {
             title = "Treadmill (%.2f km)".format(w.distanceM / 1000),
             notes = sessionNotes,
             metadata = activelyRecordedMetadata,
+            exerciseRoute = exerciseRoute,
             segments = listOf(
                 ExerciseSegment(
                     startTime = si,
@@ -189,13 +203,92 @@ object HealthConnectWriter {
 
         Log.i(
             TAG,
-            "Prepared records total=${records.size} speedChunks=${speedRecords.size} hrChunks=${heartRateRecords.size} cadenceChunks=${cadenceRecords.size} elevChunks=${elevationRecords.size} steps=${stepsToWrite}${if (stepsEstimated) "(estimated)" else ""} floors=${floorsRecord?.floors ?: 0.0}"
+            "Prepared records total=${records.size} speedChunks=${speedRecords.size} hrChunks=${heartRateRecords.size} cadenceChunks=${cadenceRecords.size} elevChunks=${elevationRecords.size} steps=${stepsToWrite}${if (stepsEstimated) "(estimated)" else ""} floors=${floorsRecord?.floors ?: 0.0} route=${exerciseRoute?.route?.size ?: 0}"
         )
 
         insertInBatchesWithRetry(hc, records)
         Log.i(
             TAG,
-            "✅ ${records.size} records written, peakSpeed=${"%.2f".format(peakSpeedMps)}m/s elevGain=${"%.1f".format(elevationGainMeters)}m net=${"%.1f".format(calories.netCalories)} gross=${"%.1f".format(calories.grossCalories)}"
+            "✅ ${records.size} records written, peakSpeed=${"%.2f".format(peakSpeedMps)}m/s elevGain=${"%.1f".format(elevationGainMeters)}m net=${"%.1f".format(calories.netCalories)} gross=${"%.1f".format(calories.grossCalories)} route=${exerciseRoute?.route?.size ?: 0}"
+        )
+    }
+
+    private fun buildVirtualExerciseRoute(
+        workout: WorkoutStateMachine.WorkoutData,
+        hasPermission: Boolean
+    ): ExerciseRoute? {
+        if (!hasPermission) return null
+        if (workout.endMs <= workout.startMs) return null
+
+        val routeStartMs = workout.startMs
+        val routeEndExclusiveMs = workout.endMs
+        val routeLastPointMs = routeEndExclusiveMs - 1L
+        if (routeLastPointMs <= routeStartMs) return null
+
+        val durationMs = (routeEndExclusiveMs - routeStartMs).coerceAtLeast(1L)
+        val dynamicSampleIntervalMs = maxOf(
+            VIRTUAL_ROUTE_BASE_SAMPLE_MS,
+            (durationMs + VIRTUAL_ROUTE_MAX_POINTS - 2L) / (VIRTUAL_ROUTE_MAX_POINTS - 1L)
+        )
+
+        val speedSamples = workout.speeds
+            .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
+            .sortedBy { it.first }
+            .ifEmpty { listOf(routeStartMs to workout.lastSpeedMps) }
+
+        val inclineSamples = workout.inclines
+            .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
+            .sortedBy { it.first }
+            .ifEmpty { listOf(routeStartMs to workout.lastInclinePercent) }
+
+        var speedIdx = speedSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
+        var inclineIdx = inclineSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
+
+        val route = mutableListOf<ExerciseRoute.Location>()
+        route += buildVirtualRouteLocation(timeMs = routeStartMs, altitudeOffsetMeters = 0.0)
+
+        var altitudeOffsetMeters = 0.0
+        var cursor = routeStartMs
+
+        while (cursor < routeLastPointMs && route.size < VIRTUAL_ROUTE_MAX_POINTS) {
+            while (speedIdx + 1 < speedSamples.size && speedSamples[speedIdx + 1].first <= cursor) {
+                speedIdx++
+            }
+            while (inclineIdx + 1 < inclineSamples.size && inclineSamples[inclineIdx + 1].first <= cursor) {
+                inclineIdx++
+            }
+
+            val nextMs = minOf(cursor + dynamicSampleIntervalMs, routeLastPointMs)
+            if (nextMs <= cursor) break
+            val deltaSeconds = (nextMs - cursor) / 1000.0
+            val speedMps = speedSamples[speedIdx].second.toDouble().coerceAtLeast(0.0)
+            val grade = (inclineSamples[inclineIdx].second.toDouble() / 100.0).coerceIn(0.0, 0.25)
+            altitudeOffsetMeters += speedMps * deltaSeconds * grade
+
+            route += buildVirtualRouteLocation(timeMs = nextMs, altitudeOffsetMeters = altitudeOffsetMeters)
+
+            cursor = nextMs
+        }
+
+        if (route.last().time != Instant.ofEpochMilli(routeLastPointMs)) {
+            route += buildVirtualRouteLocation(timeMs = routeLastPointMs, altitudeOffsetMeters = altitudeOffsetMeters)
+        }
+
+        return route.takeIf { it.size >= 2 }?.let { ExerciseRoute(it) }
+    }
+
+    private fun buildVirtualRouteLocation(
+        timeMs: Long,
+        altitudeOffsetMeters: Double
+    ): ExerciseRoute.Location {
+        val altitudeMeters = (VIRTUAL_ROUTE_BASE_ALT_M + altitudeOffsetMeters).coerceIn(-500.0, 9000.0)
+        return ExerciseRoute.Location(
+            time = Instant.ofEpochMilli(timeMs),
+            latitude = VIRTUAL_ROUTE_FIXED_LAT,
+            longitude = VIRTUAL_ROUTE_FIXED_LON,
+            horizontalAccuracy = Length.meters(VIRTUAL_ROUTE_HORIZONTAL_ACCURACY_M),
+            verticalAccuracy = Length.meters(VIRTUAL_ROUTE_VERTICAL_ACCURACY_M),
+            altitude = Length.meters(altitudeMeters)
         )
     }
 
