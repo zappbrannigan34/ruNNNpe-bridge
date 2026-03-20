@@ -54,6 +54,7 @@
 
 - Treadmill sessions export a synthetic circular route with non-decreasing altitude to drive ascent profile rendering in Fit.
 - Elevation sync is also written via dense positive-only `ElevationGainedRecord` intervals plus derived `FloorsClimbedRecord`.
+- When FTMS provides only total positive elevation gain, the app now distributes that total across session time windows to avoid flat start/end-only altitude shapes.
 - If Fit shows no ascent graph, verify Health Connect write permissions for `WRITE_EXERCISE_ROUTE`, `ElevationGainedRecord`, and `FloorsClimbedRecord`, then rerun a short workout.
 - Route points are synthetic and not intended to represent your real outdoor path.
 

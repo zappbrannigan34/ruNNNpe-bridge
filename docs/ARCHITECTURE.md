@@ -34,6 +34,7 @@ ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured 
   - Writes workout to Health Connect records.
   - Writes series records in chunks to avoid Health Connect record size limits.
   - Writes a synthetic circular `ExerciseRoute` with non-decreasing altitude for treadmill exports.
+  - Uses a shared cumulative elevation timeline for both route altitude points and `ElevationGainedRecord` intervals.
   - Writes dense positive-only `ElevationGainedRecord` intervals for ascent timeline fidelity.
   - Uses fallback step estimation when cadence-based steps are missing.
   - Uses HC-derived personal step length when available.

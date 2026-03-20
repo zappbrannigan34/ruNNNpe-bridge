@@ -41,7 +41,9 @@ This document tracks which Health Connect data types are currently written by `r
 
 - Exercise type (`WALKING` vs `RUNNING_TREADMILL`) does not provide altitude samples by itself.
 - This bridge writes a synthetic circular `ExerciseRoute` with non-decreasing altitude to provide a profile for consumers that rely on route altitude.
-- Elevation export also uses `ElevationGainedRecord` intervals and `FloorsClimbedRecord` totals.
+- Route altitude and `ElevationGainedRecord` intervals are derived from the same cumulative gain timeline.
+- If FTMS provides only total positive gain, the total is distributed across session windows before export.
+- Elevation export also uses `FloorsClimbedRecord` totals.
 - `WRITE_EXERCISE_ROUTE` permission should be granted for best Fit elevation chart interoperability.
 
 ## References

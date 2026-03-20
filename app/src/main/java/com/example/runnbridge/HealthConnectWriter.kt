@@ -33,6 +33,11 @@ import kotlin.math.roundToLong
 import kotlin.math.sin
 
 object HealthConnectWriter {
+    private data class CumulativeGainPoint(
+        val timeMs: Long,
+        val gainMeters: Double
+    )
+
     private const val TAG = "HCWriter"
     private const val RUNNING_MIN_MPS = 2.24
     private const val SERIES_RECORD_WINDOW_MS = 60_000L
@@ -87,13 +92,17 @@ object HealthConnectWriter {
             device = Device(type = Device.TYPE_PHONE, manufacturer = "NPE", model = "ruNNNpe bridge"),
             recordingMethod = Metadata.RECORDING_METHOD_ACTIVELY_RECORDED
         )
-        val elevationRecords = buildElevationRecords(
+        val gainByWindow = computeGainByWindow(
             workout = w,
-            zoneId = zone,
-            metadata = activelyRecordedMetadata,
             ftmsPositiveElevationGainM = w.ftmsPositiveElevationGainM
         )
-        val elevationGainMeters = elevationRecords.sumOf { it.elevation.inMeters }
+        val elevationRecords = buildElevationRecords(
+            gainByWindow = gainByWindow,
+            endMs = w.endMs,
+            zoneId = zone,
+            metadata = activelyRecordedMetadata
+        )
+        val elevationGainMeters = gainByWindow.values.sum()
         val sessionNotes = "ruNNNpe bridge auto-record; ${calories.equation}; elevGain=${"%.1f".format(elevationGainMeters)}m"
         val preferredStepLengthMeters = readStepLengthFromPrefs(ctx)
         val (stepsToWrite, stepsEstimated) = resolveStepCount(w, profile, preferredStepLengthMeters)
@@ -108,7 +117,8 @@ object HealthConnectWriter {
         )
         val exerciseRoute = buildVirtualExerciseRoute(
             workout = w,
-            hasPermission = grantedPermissions.contains(WRITE_EXERCISE_ROUTE_PERMISSION)
+            hasPermission = grantedPermissions.contains(WRITE_EXERCISE_ROUTE_PERMISSION),
+            gainByWindow = gainByWindow
         )
 
         val records = mutableListOf<Record>()
@@ -221,7 +231,8 @@ object HealthConnectWriter {
 
     private fun buildVirtualExerciseRoute(
         workout: WorkoutStateMachine.WorkoutData,
-        hasPermission: Boolean
+        hasPermission: Boolean,
+        gainByWindow: Map<Long, Double>
     ): ExerciseRoute? {
         if (!hasPermission) return null
         if (workout.endMs <= workout.startMs) return null
@@ -243,32 +254,32 @@ object HealthConnectWriter {
             .sortedBy { it.first }
             .ifEmpty { listOf(routeStartMs to workout.lastSpeedMps) }
 
-        val inclineSamples = workout.inclines
-            .filter { (ts, _) -> ts >= routeStartMs && ts < routeEndExclusiveMs }
-            .sortedBy { it.first }
-            .ifEmpty { listOf(routeStartMs to workout.lastInclinePercent) }
+        val gainTimeline = buildCumulativeGainTimeline(
+            gainByWindow = gainByWindow,
+            startMs = routeStartMs,
+            endExclusiveMs = routeEndExclusiveMs
+        )
 
         var speedIdx = speedSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
-        var inclineIdx = inclineSamples.indexOfLast { it.first <= routeStartMs }.coerceAtLeast(0)
+        val startAltitudeOffsetMeters = interpolateCumulativeGain(
+            timeline = gainTimeline,
+            targetTimeMs = routeStartMs
+        )
 
         val route = mutableListOf<ExerciseRoute.Location>()
         route += buildVirtualRouteLocation(
             timeMs = routeStartMs,
             loopDistanceMeters = 0.0,
-            altitudeOffsetMeters = 0.0,
+            altitudeOffsetMeters = startAltitudeOffsetMeters,
             loopCircumferenceMeters = routeLoopCircumferenceMeters
         )
 
         var loopDistanceMeters = 0.0
-        var altitudeOffsetMeters = 0.0
         var cursor = routeStartMs
 
         while (cursor < routeLastPointMs && route.size < VIRTUAL_ROUTE_MAX_POINTS) {
             while (speedIdx + 1 < speedSamples.size && speedSamples[speedIdx + 1].first <= cursor) {
                 speedIdx++
-            }
-            while (inclineIdx + 1 < inclineSamples.size && inclineSamples[inclineIdx + 1].first <= cursor) {
-                inclineIdx++
             }
 
             val nextMs = minOf(cursor + dynamicSampleIntervalMs, routeLastPointMs)
@@ -276,10 +287,12 @@ object HealthConnectWriter {
             val deltaSeconds = (nextMs - cursor) / 1000.0
             val speedMps = speedSamples[speedIdx].second.toDouble().coerceAtLeast(0.0)
             val movementMps = speedMps.coerceAtLeast(VIRTUAL_ROUTE_MIN_PROGRESS_MPS)
-            val grade = (inclineSamples[inclineIdx].second.toDouble() / 100.0).coerceIn(0.0, 0.25)
             val horizontalMeters = movementMps * deltaSeconds
             loopDistanceMeters += horizontalMeters
-            altitudeOffsetMeters += (speedMps * deltaSeconds) * grade
+            val altitudeOffsetMeters = interpolateCumulativeGain(
+                timeline = gainTimeline,
+                targetTimeMs = nextMs
+            )
 
             route += buildVirtualRouteLocation(
                 timeMs = nextMs,
@@ -292,10 +305,14 @@ object HealthConnectWriter {
         }
 
         if (route.last().time != Instant.ofEpochMilli(routeLastPointMs)) {
+            val endAltitudeOffsetMeters = interpolateCumulativeGain(
+                timeline = gainTimeline,
+                targetTimeMs = routeLastPointMs
+            )
             route += buildVirtualRouteLocation(
                 timeMs = routeLastPointMs,
                 loopDistanceMeters = loopDistanceMeters,
-                altitudeOffsetMeters = altitudeOffsetMeters,
+                altitudeOffsetMeters = endAltitudeOffsetMeters,
                 loopCircumferenceMeters = routeLoopCircumferenceMeters
             )
         }
@@ -505,33 +522,165 @@ object HealthConnectWriter {
             message.contains("memory limit")
     }
 
-    private fun buildElevationRecords(
+    private fun computeGainByWindow(
         workout: WorkoutStateMachine.WorkoutData,
-        zoneId: ZoneId,
-        metadata: Metadata,
         ftmsPositiveElevationGainM: Double?
-    ): List<ElevationGainedRecord> {
-        val gainByWindow = estimateElevationGainByWindow(workout).toMutableMap()
-        val estimatedTotal = gainByWindow.values.sum()
-        val ftmsTotal = ftmsPositiveElevationGainM?.takeIf { it > 0.0 }
+    ): Map<Long, Double> {
+        val estimatedGainByWindow = estimateElevationGainByWindow(workout)
+        val ftmsTotal = ftmsPositiveElevationGainM?.takeIf { it > 0.0 } ?: return estimatedGainByWindow
 
-        if (ftmsTotal != null) {
-            if (estimatedTotal > 0.0) {
-                val scale = ftmsTotal / estimatedTotal
-                for ((key, gainMeters) in gainByWindow) {
-                    gainByWindow[key] = gainMeters * scale
-                }
-            } else {
-                gainByWindow[workout.startMs] = ftmsTotal
+        val estimatedTotal = estimatedGainByWindow.values.sum()
+        if (estimatedTotal > 0.0) {
+            val scale = ftmsTotal / estimatedTotal
+            return estimatedGainByWindow.mapValuesTo(linkedMapOf()) { (_, gainMeters) ->
+                gainMeters * scale
             }
         }
 
+        return distributeTotalGainAcrossWindows(workout, ftmsTotal)
+    }
+
+    private fun distributeTotalGainAcrossWindows(
+        workout: WorkoutStateMachine.WorkoutData,
+        totalGainMeters: Double
+    ): Map<Long, Double> {
+        if (totalGainMeters <= 0.0 || workout.endMs <= workout.startMs) return emptyMap()
+
+        val motionByWindow = estimateMotionByWindow(workout)
+        val totalMotionMeters = motionByWindow.values.sum()
+        if (totalMotionMeters > 0.0) {
+            val distributed = linkedMapOf<Long, Double>()
+            for ((windowStartMs, motionMeters) in motionByWindow) {
+                if (motionMeters <= 0.0) continue
+                distributed[windowStartMs] = totalGainMeters * (motionMeters / totalMotionMeters)
+            }
+            if (distributed.isNotEmpty()) return distributed
+        }
+
+        val distributed = linkedMapOf<Long, Double>()
+        val windows = mutableListOf<Long>()
+        var cursor = workout.startMs
+        while (cursor < workout.endMs) {
+            windows += cursor
+            cursor += ELEVATION_RECORD_WINDOW_MS
+        }
+        if (windows.isEmpty()) {
+            distributed[workout.startMs] = totalGainMeters
+            return distributed
+        }
+
+        val gainPerWindow = totalGainMeters / windows.size
+        for (windowStartMs in windows) {
+            distributed[windowStartMs] = gainPerWindow
+        }
+        return distributed
+    }
+
+    private fun estimateMotionByWindow(w: WorkoutStateMachine.WorkoutData): Map<Long, Double> {
+        val speeds = w.speeds
+            .filter { (ts, speed) -> ts in w.startMs..w.endMs && speed > 0f }
+            .sortedBy { it.first }
+        if (speeds.isEmpty()) return emptyMap()
+
+        val motionByWindow = linkedMapOf<Long, Double>()
+        for (i in speeds.indices) {
+            val (ts, speed) = speeds[i]
+            val segmentEnd = if (i + 1 < speeds.size) {
+                minOf(speeds[i + 1].first, w.endMs)
+            } else {
+                w.endMs
+            }
+            if (segmentEnd <= ts) continue
+
+            var cursor = ts
+            while (cursor < segmentEnd) {
+                val bucketStart = w.startMs + ((cursor - w.startMs).coerceAtLeast(0L) / ELEVATION_RECORD_WINDOW_MS) * ELEVATION_RECORD_WINDOW_MS
+                val bucketEnd = minOf(bucketStart + ELEVATION_RECORD_WINDOW_MS, segmentEnd)
+                val overlapMs = (bucketEnd - cursor).coerceAtLeast(0L)
+                if (overlapMs > 0L) {
+                    val distanceMeters = speed.toDouble() * (overlapMs / 1000.0)
+                    if (distanceMeters > 0.0) {
+                        motionByWindow[bucketStart] = (motionByWindow[bucketStart] ?: 0.0) + distanceMeters
+                    }
+                }
+                cursor = bucketEnd
+            }
+        }
+        return motionByWindow
+    }
+
+    private fun buildCumulativeGainTimeline(
+        gainByWindow: Map<Long, Double>,
+        startMs: Long,
+        endExclusiveMs: Long
+    ): List<CumulativeGainPoint> {
+        if (endExclusiveMs <= startMs) return listOf(CumulativeGainPoint(startMs, 0.0))
+
+        val points = mutableListOf(CumulativeGainPoint(startMs, 0.0))
+        var cumulativeGainMeters = 0.0
+
+        for ((windowStartMs, gainMetersRaw) in gainByWindow.toSortedMap()) {
+            val gainMeters = gainMetersRaw.coerceAtLeast(0.0)
+            if (gainMeters <= 0.0) continue
+
+            val windowEndMs = minOf(windowStartMs + ELEVATION_RECORD_WINDOW_MS, endExclusiveMs)
+            if (windowEndMs <= startMs || windowEndMs <= windowStartMs) continue
+            if (windowStartMs >= endExclusiveMs) break
+
+            val clampedStartMs = windowStartMs.coerceAtLeast(startMs)
+            if (clampedStartMs > points.last().timeMs) {
+                points += CumulativeGainPoint(clampedStartMs, cumulativeGainMeters)
+            }
+
+            cumulativeGainMeters += gainMeters
+            if (windowEndMs > points.last().timeMs) {
+                points += CumulativeGainPoint(windowEndMs, cumulativeGainMeters)
+            }
+        }
+
+        if (points.last().timeMs < endExclusiveMs) {
+            points += CumulativeGainPoint(endExclusiveMs, cumulativeGainMeters)
+        }
+        return points
+    }
+
+    private fun interpolateCumulativeGain(
+        timeline: List<CumulativeGainPoint>,
+        targetTimeMs: Long
+    ): Double {
+        if (timeline.isEmpty()) return 0.0
+
+        val first = timeline.first()
+        val last = timeline.last()
+        if (targetTimeMs <= first.timeMs) return first.gainMeters
+        if (targetTimeMs >= last.timeMs) return last.gainMeters
+
+        for (i in 0 until timeline.lastIndex) {
+            val left = timeline[i]
+            val right = timeline[i + 1]
+            if (targetTimeMs > right.timeMs) continue
+            if (right.timeMs <= left.timeMs) return right.gainMeters
+
+            val ratio = (targetTimeMs - left.timeMs).toDouble() / (right.timeMs - left.timeMs).toDouble()
+            val interpolated = left.gainMeters + (right.gainMeters - left.gainMeters) * ratio
+            return interpolated
+        }
+
+        return last.gainMeters
+    }
+
+    private fun buildElevationRecords(
+        gainByWindow: Map<Long, Double>,
+        endMs: Long,
+        zoneId: ZoneId,
+        metadata: Metadata
+    ): List<ElevationGainedRecord> {
         if (gainByWindow.isEmpty()) return emptyList()
 
         val records = mutableListOf<ElevationGainedRecord>()
-        for ((windowStartMs, gainMeters) in gainByWindow) {
+        for ((windowStartMs, gainMeters) in gainByWindow.toSortedMap()) {
             if (gainMeters <= 0.0) continue
-            val windowEndMs = minOf(windowStartMs + ELEVATION_RECORD_WINDOW_MS, workout.endMs)
+            val windowEndMs = minOf(windowStartMs + ELEVATION_RECORD_WINDOW_MS, endMs)
             if (windowEndMs <= windowStartMs) continue
             val startTime = Instant.ofEpochMilli(windowStartMs)
             val endTime = Instant.ofEpochMilli(windowEndMs)
