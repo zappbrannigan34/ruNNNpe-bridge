@@ -23,6 +23,10 @@ ruNNNpe bridge receives treadmill telemetry from NPE RUNN and writes structured 
 - `FtmsParser.kt`
   - Decodes FTMS/RSC payloads into typed snapshots.
   - Parses FTMS positive/negative elevation gain fields when available.
+  - Optional FTMS fields are nullable, so devices that split telemetry across alternating packets (e.g. Merach MRK-T25) do not reset distance/incline to 0.
+  - Decodes the Merach vendor extension (reserved flag bit 13 + uint24 cumulative step count).
+- `TreadmillDeviceMatcher.kt`
+  - Selects scan results: RUNN by name (kept for RSC mode), any other device by advertised FTMS service UUID, rejecting non-treadmill FTMS machine types.
 - `WorkoutStateMachine.kt`
   - Detects workout start/end.
   - Keeps speed/incline/HR time-series and summary fields.

@@ -5,7 +5,8 @@ import kotlin.math.abs
 class WorkoutStateMachine(
     private val onStart: () -> Unit,
     private val onFinish: (WorkoutData) -> Unit,
-    private val onUpdate: (LiveStats) -> Unit = {}
+    private val onUpdate: (LiveStats) -> Unit = {},
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     companion object {
         private const val START_SPEED_THRESH = 0.2f   // m/s (0.72 km/h)
@@ -77,6 +78,13 @@ class WorkoutStateMachine(
     private var hasCadenceSample = false
     private var ftmsElevationGainStartM: Float? = null
     private var ftmsElevationGainLastM: Float? = null
+    // True once the device has reported a cumulative distance in this workout. From then on,
+    // packets without a distance field must not fall back to speed integration, otherwise
+    // devices that alternate packet layouts (distance in one, not in the other) double count.
+    private var hasSensorDistance = false
+    // Cumulative step counter reported by the device (vendor extension), if any.
+    private var deviceStepsBase = 0
+    private var deviceStepsLast: Int? = null
 
     fun onFtms(s: FtmsParser.TreadmillSnapshot) {
         feed(
@@ -84,8 +92,9 @@ class WorkoutStateMachine(
             cadence = 0,
             sensorDist = s.totalDistanceM,
             incline = s.inclinePercent,
-            heartRateBpm = s.heartRate.takeIf { it > 0 },
-            positiveElevationGainM = s.positiveElevationGainM
+            heartRateBpm = s.heartRate?.takeIf { it > 0 },
+            positiveElevationGainM = s.positiveElevationGainM,
+            deviceSteps = s.stepCount
         )
     }
 
@@ -93,16 +102,17 @@ class WorkoutStateMachine(
         feed(
             speedMps = s.speedMps,
             cadence = s.cadenceSpm,
-            sensorDist = s.totalDistanceM,
-            incline = 0f,
+            sensorDist = s.totalDistanceM.takeIf { it > 0f },
+            incline = null,
             heartRateBpm = null,
-            positiveElevationGainM = null
+            positiveElevationGainM = null,
+            deviceSteps = null
         )
     }
 
     fun onHeartRate(heartRateBpm: Int) {
         if (heartRateBpm <= 0) return
-        val now = System.currentTimeMillis()
+        val now = clock()
         lastHeartRateBpm = heartRateBpm.toLong()
         if (state != State.IDLE) {
             appendHeartRateSampleIfNeeded(now, heartRateBpm.toLong())
@@ -114,13 +124,13 @@ class WorkoutStateMachine(
         if (lastHeartRateBpm == null) return
         lastHeartRateBpm = null
         if (state != State.IDLE) {
-            onUpdate(currentStats(System.currentTimeMillis()))
+            onUpdate(currentStats(clock()))
         }
     }
 
     fun checkIdle() {
         if (state == State.IDLE) return
-        val now = System.currentTimeMillis()
+        val now = clock()
         if (now - lastMoveMs >= IDLE_TIMEOUT) finish()
     }
 
@@ -129,13 +139,14 @@ class WorkoutStateMachine(
     private fun feed(
         speedMps: Float,
         cadence: Int,
-        sensorDist: Float,
-        incline: Float,
+        sensorDist: Float?,
+        incline: Float?,
         heartRateBpm: Int?,
-        positiveElevationGainM: Float?
+        positiveElevationGainM: Float?,
+        deviceSteps: Int?
     ) {
-        val now = System.currentTimeMillis()
-        val distanceDelta = if (sensorDist > 0f && prevSensorDist != null) {
+        val now = clock()
+        val distanceDelta = if (sensorDist != null && sensorDist > 0f && prevSensorDist != null) {
             sensorDist - prevSensorDist!!
         } else {
             0f
@@ -154,7 +165,10 @@ class WorkoutStateMachine(
                     speeds.clear(); distanceM = 0.0
                     inclines.clear()
                     cadenceSamples.clear()
-                    prevSensorDist = if (sensorDist > 0) sensorDist else null
+                    prevSensorDist = sensorDist?.takeIf { it > 0f }
+                    hasSensorDistance = false
+                    deviceStepsBase = 0
+                    deviceStepsLast = null
                     stepAccum = 0.0; steps = 0
                     lastCadenceSpm = 0
                     lastSpeedMps = 0f; lastInclinePercent = 0f
@@ -164,11 +178,11 @@ class WorkoutStateMachine(
                     ftmsElevationGainStartM = null
                     ftmsElevationGainLastM = null
                     onStart()
-                    accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM)
+                    accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM, deviceSteps)
                 }
             }
             State.RUNNING -> {
-                accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM)
+                accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM, deviceSteps)
                 if (hasMovementEvidence) {
                     lastMoveMs = now
                     resumeEvidenceStreak = 0
@@ -184,7 +198,7 @@ class WorkoutStateMachine(
                         state = State.RUNNING
                         lastMoveMs = now
                         resumeEvidenceStreak = 0
-                        accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM)
+                        accumulate(now, speedMps, cadence, sensorDist, incline, heartRateBpm, positiveElevationGainM, deviceSteps)
                     }
                 } else if (now - lastMoveMs >= IDLE_TIMEOUT) {
                     finish()
@@ -201,25 +215,33 @@ class WorkoutStateMachine(
         now: Long,
         speed: Float,
         cadence: Int,
-        sDist: Float,
-        incline: Float,
+        sDist: Float?,
+        incline: Float?,
         heartRateBpm: Int?,
-        positiveElevationGainM: Float?
+        positiveElevationGainM: Float?,
+        deviceSteps: Int?
     ) {
-        appendSeriesSampleIfNeeded(now, speed, incline)
+        // A packet without an inclination field keeps the last known incline.
+        val effectiveIncline = incline ?: lastInclinePercent
+        appendSeriesSampleIfNeeded(now, speed, effectiveIncline)
         appendCadenceSampleIfNeeded(now, cadence)
         updateFtmsElevationGain(positiveElevationGainM)
         lastSpeedMps = speed
-        lastInclinePercent = incline
+        lastInclinePercent = effectiveIncline
         // Distance from sensor or integration
-        if (sDist > 0 && prevSensorDist != null) {
-            val delta = sDist - prevSensorDist!!
+        val sensorDistance = sDist?.takeIf { it > 0f }
+        if (sensorDistance != null && prevSensorDist != null) {
+            val delta = sensorDistance - prevSensorDist!!
             if (delta in 0.01f..50f) distanceM += delta
-        } else if (lastReadingMs > 0 && speed > 0) {
+        } else if (!hasSensorDistance && lastReadingMs > 0 && speed > 0) {
             val dtSec = (now - lastReadingMs) / 1000.0
             if (dtSec in 0.01..5.0) distanceM += speed * dtSec
         }
-        if (sDist > 0) prevSensorDist = sDist
+        if (sensorDistance != null) {
+            prevSensorDist = sensorDistance
+            hasSensorDistance = true
+        }
+        updateDeviceSteps(deviceSteps)
         if (cadence > 0 && lastReadingMs > 0) {
             val dtSec = (now - lastReadingMs) / 1000.0
             if (dtSec in 0.01..5.0) { stepAccum += cadence * dtSec / 60.0; steps = stepAccum.toInt() }
@@ -375,7 +397,24 @@ class WorkoutStateMachine(
         if (ftmsElevationGainStartM == null) {
             ftmsElevationGainStartM = gainM
         }
-        ftmsElevationGainLastM = gainM
+        // Positive elevation gain is cumulative. Keep the running maximum so a device that
+        // intermittently reports 0 (seen on Merach MRK-T25) cannot wipe the workout total.
+        val last = ftmsElevationGainLastM
+        ftmsElevationGainLastM = if (last == null) gainM else maxOf(last, gainM)
+    }
+
+    private fun updateDeviceSteps(deviceSteps: Int?) {
+        if (deviceSteps == null || deviceSteps < 0) return
+        val last = deviceStepsLast
+        if (last == null) {
+            // First reading of this workout: count from here.
+            deviceStepsBase = -deviceSteps
+        } else if (deviceSteps < last) {
+            // Counter reset on the device (e.g. treadmill restarted): keep what we have so far.
+            deviceStepsBase += last
+        }
+        deviceStepsLast = deviceSteps
+        steps = maxOf(steps, deviceStepsBase + deviceSteps)
     }
 
     private fun computeFtmsPositiveElevationGainM(): Double? {

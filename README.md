@@ -49,6 +49,7 @@ If you are searching for terms like `NPE RUNN Health Connect`, `Android treadmil
 
 ## Features
 
+- Works with NPE RUNN and with any treadmill that exposes the standard Bluetooth FTMS service (0x1826), e.g. Merach W50 / W50 Lite (`MRK-T25-*`). Merach's vendor step counter is used when present.
 - Background BLE monitoring with foreground service.
 - Automatic workout start and finish detection.
 - Automatic HR sensor discovery and reconnect.

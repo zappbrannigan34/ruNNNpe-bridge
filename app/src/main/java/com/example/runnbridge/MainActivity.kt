@@ -23,6 +23,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.ParcelUuid
 import android.os.PowerManager
 import android.provider.Settings
 import android.text.InputType
@@ -613,17 +614,20 @@ class MainActivity : AppCompatActivity() {
 
     @SuppressLint("MissingPermission")
     private fun startBleScan() {
-        log("Scanning for RUNN...")
+        log("Scanning for RUNN / FTMS treadmill...")
 
         val scanner = (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager)
             .adapter?.bluetoothLeScanner
 
         val callback = object : ScanCallback() {
             override fun onScanResult(cb: Int, result: ScanResult?) {
-                val device = result?.device
-                val name = device?.name
-                if (name != null && (name.contains("RUNN", ignoreCase = true) || name.contains("treadmill", ignoreCase = true))) {
-                    log("Found: ${device.name} (${device.address})")
+                val device = result?.device ?: return
+                val name = device.name ?: result.scanRecord?.deviceName
+                val serviceUuids = result.scanRecord?.serviceUuids.orEmpty().map { it?.uuid }
+                val ftmsServiceData = result.scanRecord
+                    ?.getServiceData(ParcelUuid(TreadmillDeviceMatcher.FTMS_SERVICE_UUID))
+                if (TreadmillDeviceMatcher.matches(name, serviceUuids, ftmsServiceData)) {
+                    log("Found: ${name ?: "unnamed FTMS device"} (${device.address})")
                     scanner?.stopScan(this)
                     onRunnFound(device)
                 }
